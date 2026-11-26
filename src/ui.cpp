@@ -104,6 +104,13 @@ void setup() {
 
 static void save() { feat::post(feat::Act::SaveCfg); }
 
+static void rs_scroll() {
+    float ry = overlay::pad_rstick_y();
+    if (std::fabs(ry) < 0.2f) return;
+    float v = (std::fabs(ry) - 0.2f) / 0.8f * (ry > 0 ? 1.f : -1.f);
+    ImGui::SetScrollY(ImGui::GetScrollY() - v * 1400.f * ImGui::GetIO().DeltaTime);
+}
+
 static void pill(const char* text, const ImVec4& col) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImGui::PushFont(g_small);
@@ -297,6 +304,7 @@ static void tab_weapons(const feat::Status& st) {
         ImGui::TableSetupColumn("Exemplaires", ImGuiTableColumnFlags_WidthFixed, 110);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 110);
         ImGui::TableHeadersRow();
+        rs_scroll();
         for (auto& r : rows) {
             if (!f.empty()) {
                 std::string n = r.name;
@@ -386,16 +394,16 @@ static void tab_player(const feat::Status& st) {
     hint("Le minuteur de chute du jeu est remis \xC3\xA0 z\xC3\xA9ro en continu, le sol est trait\xC3\xA9 comme sans d\xC3\xA9g\xC3\xA2t de chute, et le personnage (et Torrent) est intouchable pendant la chute et l'atterrissage.");
     card_end();
 
-    card_begin("cast", "Cast rapide des buffs", "Acc\xC3\xA9l\xC3\xA8re uniquement les sorts et incantations de buff. Les sorts d'attaque, les armes et les cendres de guerre gardent leur vitesse normale.");
+    card_begin("cast", "Cast rapide des buffs", "Acc\xC3\xA9l\xC3\xA8re uniquement les buffs : sorts / incantations de buff et cendres de guerre de buff. Les attaques gardent leur vitesse normale.");
     char cb[64];
-    snprintf(cb, sizeof(cb), "%d buffs / %d attaques", st.castLearned, st.castAttack);
+    snprintf(cb, sizeof(cb), "%d sorts / %d cendres buff", st.castLearned, st.castAttack);
     right_pill(st.casting ? "Cast en cours" : cb, st.casting ? C_WARN : C_DIM);
     if (toggle("Cast rapide", &g_cfg.fastCast)) save();
     ImGui::PushItemWidth(-1);
     ImGui::SliderFloat("##cs", &g_cfg.castSpeed, 2.f, 10.f, "Vitesse du cast  x%.1f");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     ImGui::PopItemWidth();
-    hint("Le sort s\xC3\xA9lectionn\xC3\xA9 est lu dans les donn\xC3\xA9" "es du jeu (type d'effet). Chaque sort de buff est rapide d\xC3\xA8s son 2e lancement.");
+    hint("Sorts : type lu dans les donn\xC3\xA9" "es du jeu. Cendres de guerre : au 1er usage, si un effet durable appara\xC3\xAEt sur toi c'est un buff. Rapide d\xC3\xA8s le 2e lancement.");
     if (ImGui::Button("Oublier les sorts appris")) feat::post(feat::Act::ResetCast);
     card_end();
 
@@ -536,6 +544,7 @@ void draw() {
                 curTab = me;
                 ImGui::Dummy(ImVec2(0, 4));
                 ImGui::BeginChild("scroll", ImVec2(0, 0), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
+                if (me != 3) rs_scroll();
                 fn(st);
                 ImGui::EndChild();
                 ImGui::EndTabItem();

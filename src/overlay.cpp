@@ -69,6 +69,7 @@ static thread_local bool tl_in = false;
 static std::atomic<long> g_dx{0}, g_dy{0}, g_wheel{0};
 static std::atomic<uint32_t> g_padButtons{0};
 static std::atomic<uint32_t> g_padSticks{0};
+static std::atomic<int> g_padRY{0};
 static std::atomic<uint32_t> g_padTrig{0};
 static std::atomic<bool> g_padToggle{false};
 static std::atomic<bool> g_padSeen{false};
@@ -81,6 +82,7 @@ static ImVec2 g_vpos{0, 0};
 
 HWND hwnd() { return g_hwnd; }
 bool pad_mode() { return g_padMode.load(); }
+float pad_rstick_y() { return g_padRY.load() / 32767.f; }
 
 void block_inputs_until_release() {
     g_padBlock = true;
@@ -492,11 +494,13 @@ static void pad_capture(XINPUT_STATE* st) {
     if (any || !g_padSeen) {
         g_padButtons = b;
         g_padSticks = ((uint32_t)(uint16_t)st->Gamepad.sThumbLX) | ((uint32_t)(uint16_t)st->Gamepad.sThumbLY << 16);
+        g_padRY = st->Gamepad.sThumbRY;
         g_padTrig = st->Gamepad.bLeftTrigger | (st->Gamepad.bRightTrigger << 8);
         if (any) g_padSeen = true;
     } else {
         g_padButtons = 0;
         g_padSticks = 0;
+        g_padRY = st->Gamepad.sThumbRY;
     }
     (void)chordPrev;
     static bool held = false, consumed = false;

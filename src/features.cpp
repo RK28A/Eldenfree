@@ -195,7 +195,7 @@ const std::vector<GameMenu>& game_menus() {
     return m;
 }
 
-static std::unordered_set<int> s_castAnims, s_castNo;
+static std::unordered_set<int> s_castAnims, s_castNo, s_aowBuff, s_aowNo;
 static void cast_save();
 
 struct JFlag { int r, off; uint8_t ground; int score; };
@@ -275,6 +275,10 @@ static void process_actions() {
             break;
         case Act::ResetCast:
             s_castAnims.clear();
+            s_aowBuff.clear();
+            s_aowNo.clear();
+            g_cfg.aowBuff.clear();
+            g_cfg.aowNo.clear();
             s_castNo.clear();
             cast_save();
             msg("Sorts appris effac\xC3\xA9s");
@@ -527,13 +531,19 @@ static bool selected_spell_is_buff() {
     return row && (mem::rdv<uint8_t>(row + 0x1E) == 2 || (mem::rdv<uint8_t>(row + 0x31) & 0x0C));
 }
 
+static int s_aowPend = -1;
+static double s_aowPendT = 0;
+static std::vector<std::pair<int, float>> s_aowFx;
+
 static void tick_cast(uintptr_t pl, Status& st) {
     if (!s_castLoaded) {
         s_castLoaded = true;
         parse_set(g_cfg.castAnims, s_castAnims);
+        parse_set(g_cfg.aowBuff, s_aowBuff);
+        parse_set(g_cfg.aowNo, s_aowNo);
     }
     st.castLearned = (int)s_castAnims.size();
-    st.castAttack = 0;
+    st.castAttack = (int)s_aowBuff.size();
     if (!pl) { s_castActive = false; return; }
     double t = now();
     uintptr_t P = game::pgd();
@@ -552,10 +562,19 @@ static void tick_cast(uintptr_t pl, Status& st) {
         int spell = game::selected_spell();
         auto mt = game::param_tables("MAGIC_PARAM_ST");
         uintptr_t row = (spell > 0 && !mt.empty()) ? game::param_find(mt[0], spell) : 0;
+        bool isSpell = false;
         if (row) {
             int mp = mem::rdv<int16_t>(row + 0x10);
             int mpc = mem::rdv<int16_t>(row + 0x5C);
-            if (mp > 0 && drop * 2 >= mp && drop <= mp + std::max(mpc, 0) + 2) {
+            isSpell = mp > 0 && drop * 2 >= mp && drop <= mp + std::max(mpc, 0) + 2;
+        }
+        if (!isSpell && s_aowPend < 0 && !s_aowBuff.count(anim) && !s_aowNo.count(anim) && !s_castAnims.count(anim)) {
+            s_aowPend = anim;
+            s_aowPendT = t;
+            game::speffects(pl, s_aowFx);
+        }
+        if (row && isSpell) {
+            {
                 bool changed = s_castAnims.insert(anim).second;
                 if (s_animPrev > 0 && s_animCurT - s_animPrevT < 1.5) changed |= s_castAnims.insert(s_animPrev).second;
                 if (changed) {
@@ -565,9 +584,28 @@ static void tick_cast(uintptr_t pl, Status& st) {
             }
         }
     }
+    if (s_aowPend > 0 && t - s_aowPendT > 2.0) {
+        std::vector<std::pair<int, float>> fx;
+        game::speffects(pl, fx);
+        bool buff = false;
+        for (auto& e : fx) {
+            if (e.second < 15.f || e.second > 600.f) continue;
+            bool known = false;
+            for (auto& o : s_aowFx)
+                if (o.first == e.first) { known = true; break; }
+            if (!known) { buff = true; break; }
+        }
+        (buff ? s_aowBuff : s_aowNo).insert(s_aowPend);
+        elog("Cendre de guerre anim %d : %s", s_aowPend, buff ? "buff" : "attaque");
+        s_aowPend = -1;
+        g_cfg.aowBuff = join_set(s_aowBuff);
+        g_cfg.aowNo = join_set(s_aowNo);
+        cfg_save();
+    }
     s_lastFp = fp;
     s_lastCastHp = hp;
-    bool want = g_cfg.fastCast && anim > 0 && s_castAnims.count(anim) && selected_spell_is_buff();
+    bool want = g_cfg.fastCast && anim > 0 &&
+                ((s_castAnims.count(anim) && selected_spell_is_buff()) || s_aowBuff.count(anim));
     if (want) {
         game::set_anim_speed(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f));
         s_castActive = true;

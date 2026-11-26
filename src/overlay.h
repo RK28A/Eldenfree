@@ -10,6 +10,7 @@ void pad_stick(float& x, float& y);
 bool pad_seen();
 void block_inputs_until_release();
 bool pad_mode();
+float pad_rstick_y();
 }
 
 namespace ui {
