@@ -251,13 +251,17 @@ static void tab_world(const feat::Status& st) {
     if (toggle("Voyage rapide depuis les mini-donjons", &g_cfg.dungeonWarp)) save();
     card_end();
 
-    card_begin("map", "Carte", "R\xC3\xA9v\xC3\xA8le tous les fragments de carte (surface + souterrain).");
-    if (primary("R\xC3\xA9v\xC3\xA9ler toute la carte", st.flags)) feat::post(feat::Act::UnlockMap);
+    card_begin("map", "Carte", "R\xC3\xA9v\xC3\xA8le les fragments de carte. D\xC3\xA9sactiver les cache \xC3\xA0 nouveau.");
+    bool mb = st.mapBase, md = st.mapDlc;
+    if (toggle("Carte du jeu de base (surface + souterrain)", &mb)) feat::post(feat::Act::MapBase, mb ? 1 : 0);
+    if (toggle("Carte du DLC (Royaume de l'Ombre)", &md)) feat::post(feat::Act::MapDlc, md ? 1 : 0);
     card_end();
 
-    card_begin("graces", "Sites de gr\xC3\xA2" "ce", "Active tous les sites de gr\xC3\xA2" "ce pour la t\xC3\xA9l\xC3\xA9portation.");
-    if (primary("D\xC3\xA9" "bloquer tous les sites de gr\xC3\xA2" "ce", st.flags)) feat::post(feat::Act::UnlockGraces);
-    hint("Irr\xC3\xA9versible sur la sauvegarde : fais une copie avant si tu veux pouvoir revenir en arri\xC3\xA8re.");
+    card_begin("graces", "Sites de gr\xC3\xA2" "ce", "Active les sites de gr\xC3\xA2" "ce pour la t\xC3\xA9l\xC3\xA9portation. D\xC3\xA9sactiver les reverrouille tous (y compris ceux d\xC3\xA9j\xC3\xA0 d\xC3\xA9" "couverts).");
+    bool gb = st.gracesBase, gd = st.gracesDlc;
+    if (toggle("Gr\xC3\xA2" "ces du jeu de base (314)", &gb)) feat::post(feat::Act::GracesBase, gb ? 1 : 0);
+    if (toggle("Gr\xC3\xA2" "ces du DLC (105)", &gd)) feat::post(feat::Act::GracesDlc, gd ? 1 : 0);
+    hint("Fais une copie de ta sauvegarde avant : ces changements sont enregistr\xC3\xA9s dans ta partie.");
     card_end();
 
     card_begin("bells", "Table ronde  \xC2\xB7  S\xC5\x93urs jumelles", "Les 9 cloches de mineur (pierres de forge [1-4] + pierres sombres [1-5]), comme si tu les avais donn\xC3\xA9" "es.");
@@ -368,14 +372,8 @@ static void tab_torrent(const feat::Status& st) {
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     card_end();
 
-    card_begin("torjump", "Vol", "Sur Torrent : maintiens Saut (F / A) pour d\xC3\xA9" "coller, Torrent vole vers l\xE2\x80\x99" "endroit o\xC3\xB9 tu regardes. Maintiens Saut \xC3\xA0 nouveau pour revenir \xC3\xA0 la normale.");
-    right_pill(st.flying ? "En vol" : "Au sol", st.flying ? C_OK : C_DIM);
-    if (toggle("Vol sur Torrent", &g_cfg.torrentInfJump)) save();
-    ImGui::PushItemWidth(-1);
-    ImGui::SliderFloat("##flyspd", &g_cfg.flySpeed, 5.f, 60.f, "Vitesse de vol  %.0f m/s");
-    if (ImGui::IsItemDeactivatedAfterEdit()) save();
-    ImGui::PopItemWidth();
-    hint("Avancer : stick gauche / ZQSD \xC2\xB7  Plus vite : B / Espace / Maj  \xC2\xB7  Aucun d\xC3\xA9g\xC3\xA2t de chute en vol.");
+    card_begin("torjump", "Saut infini", "Torrent peut sauter \xC3\xA0 nouveau en l'air, sans limite.");
+    patch_toggle("Saut infini sur Torrent", &g_cfg.torrentInfJump, st.pJump);
     card_end();
 
 }
@@ -418,6 +416,16 @@ static void tab_diag(const feat::Status& st) {
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 130);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthStretch);
         char b[64];
+        {
+            char db[48];
+            snprintf(db, sizeof(db), "%d", st.deaths);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("Nombre de morts");
+            ImGui::TableNextColumn();
+            pill(st.deaths >= 0 ? db : "?", C_GOLD);
+            ImGui::TableNextColumn();
+        }
         status_row("Signatures de base", st.core);
         status_row("Event flags", st.flags);
         snprintf(b, sizeof(b), "%zu tables", st.paramCount);
@@ -426,12 +434,10 @@ static void tab_diag(const feat::Status& st) {
         status_row("Personnage", st.player, st.playerOff >= 0 ? b : "charge ta partie");
         status_row("ItemGib", st.itemGib);
         status_row("Menus du jeu", st.menus);
-        status_row("Bouton menu \xC3\x89" "chap", st.pauseLearned, st.pauseLearned ? "reconnu" : "ouvre le menu \xC3\x89" "chap 2 fois");
         status_row("T\xC3\xA9l\xC3\xA9portation", st.warp);
         status_row("Patch carte en combat", st.pMap);
         status_row("Patch Torrent partout", st.pRide);
         status_row("Patch saut infini", st.pJump);
-        status_row("Patch saut en chute", st.pAir);
         status_row("Noms d'armes", st.names);
         status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "appelle Torrent pour le d\xC3\xA9tecter");
         ImGui::EndTable();
@@ -496,7 +502,7 @@ void draw() {
     ImGui::PopFont();
     right_pill(st.player ? "En jeu" : st.core ? "En attente de la partie" : "Initialisation", st.player ? C_OK : C_WARN);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8);
-    hint("F10 / \xC3\x89" "chap / B pour fermer  \xC2\xB7  LB/RB : onglets  \xC2\xB7  A : valider");
+    hint("F10 ou maintenir Menu (manette) pour ouvrir/fermer  \xC2\xB7  LB/RB : onglets  \xC2\xB7  A : valider  \xC2\xB7  B : fermer");
     ImVec2 lp = ImGui::GetCursorScreenPos();
     dl->AddLine(ImVec2(lp.x, lp.y), ImVec2(lp.x + ImGui::GetContentRegionAvail().x, lp.y), ImGui::GetColorU32(C_GOLD_LO), 1.f);
     ImGui::Dummy(ImVec2(0, 4));

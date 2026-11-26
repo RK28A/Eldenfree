@@ -239,7 +239,7 @@ int wmain() {
 
     say("  Injection du mod...");
     if (!inject(pid, dll)) fail("l'injection a échoué. Lance EldenFree.exe en administrateur si le jeu l'est.");
-    say("  OK ! En jeu : F10, ou le bouton EldenFree dans le menu Échap / de grâce.");
+    say("  OK ! En jeu : F10, ou maintiens le bouton Menu de la manette.");
     say("  Réglages et journal : %s", narrow(dd).c_str());
     say("  Joue hors ligne : ne te connecte pas en ligne avec le mod.");
     Sleep(5000);

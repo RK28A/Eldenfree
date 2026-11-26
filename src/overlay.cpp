@@ -192,10 +192,14 @@ static void toggle_check() {
     static bool prev = false;
     bool down = (GetAsyncKeyState(g_cfg.toggleKey) & 0x8000) != 0;
     bool fg = GetForegroundWindow() == g_hwnd;
-    g_padToggle = false;
-    if (down && !prev && fg) {
-        if (feat::g_menuOpen) feat::g_menuOpen = false;
-        else open_panel(false);
+    bool pad = g_padToggle.exchange(false);
+    if ((down && !prev && fg) || pad) {
+        if (feat::g_menuOpen) {
+            feat::g_menuOpen = false;
+            if (pad) g_padBlock = true;
+        } else {
+            open_panel(false);
+        }
     }
     prev = down;
 }
@@ -277,7 +281,7 @@ static void render(IDXGISwapChain3* sc) {
     if (!queue_ok(q)) return;
     if (g_frames.empty() && !create_frames(sc)) { release_frames(); return; }
     toggle_check();
-    bool showBtn = !feat::g_menuOpen && feat::g_gameMenu;
+    bool showBtn = false;
     if (!feat::g_menuOpen && !showBtn) return;
 
     ImGui_ImplDX12_NewFrame();
@@ -474,6 +478,22 @@ static void pad_capture(XINPUT_STATE* st) {
         g_padSticks = 0;
     }
     (void)chordPrev;
+    static bool held = false, consumed = false;
+    static ULONGLONG downT = 0;
+    static int replay = 0;
+    ULONGLONG now = GetTickCount64();
+    if (b & XINPUT_GAMEPAD_START) {
+        if (!held) { held = true; consumed = false; downT = now; }
+        if (!consumed && now - downT >= 500) { consumed = true; g_padToggle = true; }
+        st->Gamepad.wButtons &= ~XINPUT_GAMEPAD_START;
+    } else if (held) {
+        held = false;
+        if (!consumed) replay = 8;
+    }
+    if (replay > 0 && !feat::g_menuOpen) {
+        st->Gamepad.wButtons |= XINPUT_GAMEPAD_START;
+        --replay;
+    }
     if (g_padBlock && b == 0) g_padBlock = false;
 }
 

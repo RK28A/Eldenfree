@@ -8,7 +8,7 @@ namespace feat {
 
 constexpr uint32_t GREYOLL_FLAG = 1050400800;
 
-enum class Act { ResetGreyoll, UnlockMap, UnlockGraces, UnlockBells, DupWeapon, RefreshInv, SaveCfg, OpenMenu, ResetCast, ResetJump };
+enum class Act { ResetGreyoll, UnlockMap, UnlockGraces, UnlockBells, DupWeapon, RefreshInv, SaveCfg, OpenMenu, ResetCast, ResetJump, MapBase, MapDlc, GracesBase, GracesDlc };
 
 struct Status {
     bool menus = false;
@@ -20,6 +20,8 @@ struct Status {
     int jumpLearned = 0;
     bool flying = false;
     bool pauseLearned = false;
+    bool mapBase = false, mapDlc = false, gracesBase = false, gracesDlc = false;
+    int deaths = -1;
     int castAttack = 0;
     bool core = false, params = false, player = false, itemGib = false, names = false, flags = false;
     int playerOff = -1;

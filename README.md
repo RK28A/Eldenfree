@@ -1,6 +1,6 @@
 # EldenFree
 
-Mod Elden Ring avec un panneau en jeu (**F10** ou bouton EldenFree dans le menu Échap / de grâce). `EldenFree.exe` lance le jeu hors ligne et injecte le mod tout seul.
+Mod Elden Ring avec un panneau en jeu (**F10** ou maintenir le bouton Menu de la manette). `EldenFree.exe` lance le jeu hors ligne et injecte le mod tout seul.
 
 | Onglet | Fonction |
 |---|---|
@@ -8,7 +8,7 @@ Mod Elden Ring avec un panneau en jeu (**F10** ou bouton EldenFree dans le menu 
 | Monde | Révéler la carte · sites de grâce · pierres de forge chez les Sœurs jumelles · carte/voyage rapide en combat · Torrent partout · voyage rapide depuis les mini-donjons |
 | Menus | Renforcer une arme, table de forge, cendres de guerre, renaissance, apparence et tous les menus de site de grâce |
 | Armes | Dupliquer une arme de l'inventaire (3 exemplaires max) |
-| Torrent | Multiplicateurs marche/trot et galop (x1 à x3) · saut infini |
+| Torrent | Vitesse (x1 à x3) · saut infini |
 | Joueur | Aucun dégât de chute · cast rapide · garder ses runes à la mort |
 | Diagnostic | État des signatures mémoire |
 

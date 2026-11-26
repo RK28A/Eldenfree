@@ -68,7 +68,7 @@ static bool need_params() {
     return game::params_ready();
 }
 
-static const uint32_t kGraces[] = {
+static const uint32_t kGracesBase[] = {
     71190, 76101, 76100, 76111, 76120, 76103, 76104, 76105, 76106, 76108, 76110, 76113, 76114, 76116, 76119,
     73002, 73004, 73103, 73115, 73100, 73117, 73201, 71800, 71801, 76102, 71002, 71001, 76118, 76117, 73011,
     73410, 73412, 76150, 76151, 76152, 76153, 76154, 76155, 76156, 76162, 76157, 76158, 76159, 76160, 76161,
@@ -89,28 +89,34 @@ static const uint32_t kGraces[] = {
     73018, 73017, 76550, 76551, 76652, 76653, 73019, 73112, 73211, 71506, 71507, 71508, 71505, 71501, 71502,
     71503, 71504, 71500, 71211, 71212, 71213, 71210, 71240, 71214, 71215, 71219, 71216, 71218, 71271, 71221,
     71224, 71226, 71225, 71220, 71270, 71222, 71223, 71227, 71251, 71252, 71253, 71250, 71231, 71232, 71233,
-    71234, 71235, 71230, 71303, 71304, 71305, 71306, 71307, 71302, 71308, 71309, 71310, 71301, 71300, 76800,
-    76801, 76802, 76805, 76803, 76804, 76813, 76810, 76811, 76812, 76830, 74000, 74100, 74200, 74300, 74301,
-    74351, 76821, 76822, 76823, 76831, 76832, 76835, 76833, 76834, 76841, 74102, 72201, 72202, 72203, 72204,
-    72200, 76840, 76850, 76851, 76852, 76853, 72001, 72002, 72003, 72000, 72012, 72013, 72014, 72015, 72016,
-    72010, 76940, 76941, 76942, 76944, 76943, 76945, 76912, 76913, 76914, 74001, 74203, 76900, 76907, 76902,
-    76908, 76909, 76910, 76911, 76903, 76904, 76905, 76906, 72500, 76916, 76917, 76918, 74101, 74002, 74202,
-    76862, 76863, 76864, 76860, 76861, 72801, 72802, 72803, 72800, 72102, 72101, 72106, 72107, 72108, 72109,
-    72111, 72112, 72113, 72114, 72116, 72117, 72120, 72110, 76930, 76931, 76960, 76935, 76937, 76936,
+    71234, 71235, 71230, 71303, 71304, 71305, 71306, 71307, 71302, 71308, 71309, 71310, 71301, 71300,
 };
 
-static void act_map() {
-    std::vector<uint32_t> flags = {62004, 62005, 62006, 62007, 62008, 62009, 62010, 62011, 62012, 62020, 62021,
-                                   62022, 62030, 62031, 62032, 62040, 62041, 62050, 62051, 62052, 62060, 62061,
-                                   62062, 62063, 62064, 82001, 62080, 62081, 62082, 62083, 62084, 82002};
-    int ok = set_flags(flags);
-    msg("Carte : " + std::to_string(ok) + "/" + std::to_string(flags.size()) + " fragments débloqués");
+static const uint32_t kGracesDlc[] = {
+    76800, 76801, 76802, 76805, 76803, 76804, 76813, 76810, 76811, 76812, 76830, 74000, 74100, 74200, 74300,
+    74301, 74351, 76821, 76822, 76823, 76831, 76832, 76835, 76833, 76834, 76841, 74102, 72201, 72202, 72203,
+    72204, 72200, 76840, 76850, 76851, 76852, 76853, 72001, 72002, 72003, 72000, 72012, 72013, 72014, 72015,
+    72016, 72010, 76940, 76941, 76942, 76944, 76943, 76945, 76912, 76913, 76914, 74001, 74203, 76900, 76907,
+    76902, 76908, 76909, 76910, 76911, 76903, 76904, 76905, 76906, 72500, 76916, 76917, 76918, 74101, 74002,
+    74202, 76862, 76863, 76864, 76860, 76861, 72801, 72802, 72803, 72800, 72102, 72101, 72106, 72107, 72108,
+    72109, 72111, 72112, 72113, 72114, 72116, 72117, 72120, 72110, 76930, 76931, 76960, 76935, 76937, 76936,
+};
+
+static const uint32_t kMapBase[] = {62004, 62005, 62006, 62007, 62008, 62009, 62010, 62011, 62012, 62020, 62021, 62022, 62030,
+                                    62031, 62032, 62040, 62041, 62050, 62051, 62052, 62060, 62061, 62062, 62063, 62064, 82001};
+static const uint32_t kMapDlc[] = {62080, 62081, 62082, 62083, 62084, 82002};
+
+template <size_t N> static bool all_set(const uint32_t (&f)[N]) {
+    for (uint32_t x : f)
+        if (game::flag_get(x) != 1) return false;
+    return true;
 }
 
-static void act_graces() {
-    std::vector<uint32_t> flags(std::begin(kGraces), std::end(kGraces));
-    int ok = set_flags(flags);
-    msg("Grâces : " + std::to_string(ok) + "/" + std::to_string(flags.size()) + " débloquées");
+template <size_t N> static void set_group(const uint32_t (&f)[N], bool on, const char* what) {
+    int ok = 0;
+    for (uint32_t x : f)
+        if (game::flag_set(x, on)) ++ok;
+    msg(std::string(what) + (on ? " : d\xC3\xA9" "bloqu\xC3\xA9" "es (" : " : verrouill\xC3\xA9" "es (") + std::to_string(ok) + "/" + std::to_string(N) + ")");
 }
 
 static void act_bells() {
@@ -251,8 +257,12 @@ static void process_actions() {
         case Act::ResetGreyoll:
             greyoll_respawn();
             break;
-        case Act::UnlockMap: act_map(); break;
-        case Act::UnlockGraces: act_graces(); break;
+        case Act::MapBase: set_group(kMapBase, a.second != 0, "Carte (jeu de base)"); break;
+        case Act::MapDlc: set_group(kMapDlc, a.second != 0, "Carte (DLC)"); break;
+        case Act::GracesBase: set_group(kGracesBase, a.second != 0, "Gr\xC3\xA2" "ces (jeu de base)"); break;
+        case Act::GracesDlc: set_group(kGracesDlc, a.second != 0, "Gr\xC3\xA2" "ces (DLC)"); break;
+        case Act::UnlockMap: break;
+        case Act::UnlockGraces: break;
         case Act::UnlockBells: act_bells(); break;
         case Act::DupWeapon: act_dup(a.second); break;
         case Act::RefreshInv: refresh_weapons(); break;
@@ -455,15 +465,17 @@ static void tick_patches(Status& st) {
     static int lastWarp = -1;
     st.pMap = game::patch_found(game::P_MAP1) && game::patch_found(game::P_MAP2);
     st.pRide = game::patch_found(game::P_RIDE);
-    st.pJump = game::patch_found(game::P_HJUMP2);
-    st.pAir = game::patch_found(game::P_HFALL);
+    st.pJump = game::patch_found(game::P_HJUMP1) && game::patch_found(game::P_HJUMP2);
+    st.pAir = false;
     if (st.pMap) {
         game::patch_set(game::P_MAP1, g_cfg.mapCombat);
         game::patch_set(game::P_MAP2, g_cfg.mapCombat);
     }
     if (st.pRide) game::patch_set(game::P_RIDE, g_cfg.rideAnywhere);
-    if (st.pJump) game::patch_set(game::P_HJUMP2, false);
-    if (st.pAir) game::patch_set(game::P_HFALL, g_cfg.torrentInfJump && g_cfg.torrentAirJump);
+    if (st.pJump) {
+        game::patch_set(game::P_HJUMP1, g_cfg.torrentInfJump);
+        game::patch_set(game::P_HJUMP2, g_cfg.torrentInfJump);
+    }
     int want = g_cfg.dungeonWarp ? 1 : 0;
     if (st.params && want != lastWarp) {
         int r = game::speffect_state_set(4270, want == 1);
@@ -900,6 +912,21 @@ static DWORD WINAPI tick_thread(void*) {
             process_actions();
             tick_boss(t, st);
             st.flags = st.greyoll >= 0;
+            static double lastFlagsT = -10;
+            static bool fb[4];
+            if (t - lastFlagsT > 1.0) {
+                lastFlagsT = t;
+                fb[0] = all_set(kMapBase);
+                fb[1] = all_set(kMapDlc);
+                fb[2] = all_set(kGracesBase);
+                fb[3] = all_set(kGracesDlc);
+            }
+            st.mapBase = fb[0];
+            st.mapDlc = fb[1];
+            st.gracesBase = fb[2];
+            st.gracesDlc = fb[3];
+            uintptr_t gdm = mem::ptr(game::g.gameDataMan);
+            st.deaths = gdm ? (int)mem::rdv<uint32_t>(gdm + 0x94) : -1;
             uintptr_t pl = game::player();
             s_player = pl;
             st.player = pl != 0;
@@ -918,8 +945,7 @@ static DWORD WINAPI tick_thread(void*) {
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;
             tick_cast(pl, st);
-            tick_fly(t, pl, tor, mounted, st);
-            tick_menus(t, pl, st);
+
             st.names = game::names_ready();
             if (pl && g_menuOpen && g_wantWeapons && t - lastWeps > 1.5) {
                 lastWeps = t;
