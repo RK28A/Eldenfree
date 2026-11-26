@@ -451,8 +451,10 @@ static void tick_torrent(double t, uintptr_t tor, bool mounted, Status& st) {
         st.torrentBase = 0;
         return;
     }
-    float target = g_cfg.torrentMult;
-    target = std::clamp(target, 1.f, 3.f);
+    float target = std::clamp(g_cfg.torrentMult, 1.f, 3.f);
+    uintptr_t tph = game::chr_module(tor, g_cfg.offPhysMod);
+    bool grounded = tph && mem::rdv<uint8_t>(tph + 0x1D1) != 0;
+    if (!grounded) target = 1.f;
     float cur = 1.f;
     game::anim_speed(tor, cur);
     if (std::fabs(cur - target) > 0.001f) game::set_anim_speed(tor, target);
