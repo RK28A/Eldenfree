@@ -58,6 +58,7 @@ void cfg_load() {
     c.rideAnywhere = geti(L"World", L"RideAnywhere", c.rideAnywhere);
     c.dungeonWarp = geti(L"World", L"DungeonWarp", c.dungeonWarp);
     c.torrentInfJump = geti(L"Torrent", L"InfiniteJump", c.torrentInfJump);
+    c.torrentAirJump = geti(L"Torrent", L"JumpWhileFalling", c.torrentAirJump);
     c.fastCast = geti(L"Player", L"FastCast", c.fastCast);
     c.castSpeed = getf(L"Player", L"CastSpeed", c.castSpeed);
     c.castAnims = gets(L"Player", L"CastAnims");
@@ -109,6 +110,7 @@ void cfg_save() {
     puti(L"World", L"RideAnywhere", c.rideAnywhere);
     puti(L"World", L"DungeonWarp", c.dungeonWarp);
     puti(L"Torrent", L"InfiniteJump", c.torrentInfJump);
+    puti(L"Torrent", L"JumpWhileFalling", c.torrentAirJump);
     puti(L"Player", L"FastCast", c.fastCast);
     putf(L"Player", L"CastSpeed", c.castSpeed);
     puts_(L"Player", L"CastAnims", c.castAnims);

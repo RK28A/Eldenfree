@@ -371,8 +371,9 @@ static void tab_torrent(const feat::Status& st) {
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     card_end();
 
-    card_begin("torjump", "Saut infini", "Torrent peut sauter \xC3\xA0 nouveau en l'air, sans limite.");
+    card_begin("torjump", "Saut infini", "Premier saut normal, puis double saut (avec l'effet) \xC3\xA0 chaque nouvelle pression en l'air, sans limite.");
     patch_toggle("Saut infini sur Torrent", &g_cfg.torrentInfJump, st.pJump);
+    if (g_cfg.torrentInfJump) patch_toggle("Sauter aussi en chute libre (exp\xC3\xA9rimental)", &g_cfg.torrentAirJump, st.pAir);
     card_end();
 
 }
@@ -428,6 +429,7 @@ static void tab_diag(const feat::Status& st) {
         status_row("Patch carte en combat", st.pMap);
         status_row("Patch Torrent partout", st.pRide);
         status_row("Patch saut infini", st.pJump);
+        status_row("Patch saut en chute", st.pAir);
         status_row("Noms d'armes", st.names);
         status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "appelle Torrent pour le d\xC3\xA9tecter");
         ImGui::EndTable();

@@ -417,6 +417,7 @@ struct CodePatch {
     int off;
     std::vector<uint8_t> bytes;
     bool cave;
+    uint8_t caveAl;
     uintptr_t addr;
     std::vector<uint8_t> orig;
     uintptr_t caveMem;
@@ -425,11 +426,12 @@ struct CodePatch {
 };
 
 static CodePatch s_patches[P_COUNT] = {
-    {"MapInCombat1", "E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 ?? ?? ?? ?? 75 ?? 83 E6 FE", 0, {0x48, 0x31, 0xC0, 0x90, 0x90}, false, 0, {}, 0, false, false},
-    {"MapInCombat2", "74 ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 48 89 45 ?? 48 8D 4D ?? E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 48 83 BF", 0, {0xEB}, false, 0, {}, 0, false, false},
-    {"RideAnywhere", "48 8B 40 68 80 78 36 00 0F 95 C0", 4, {0x30, 0xC0, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, {}, 0, false, false},
-    {"HorseJump1", "0F B6 81 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? 80 B9", 0, {0xB0, 0x01, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, {}, 0, false, false},
-    {"HorseJump2", "88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 88 87", 0, {}, true, 0, {}, 0, false, false},
+    {"MapInCombat1", "E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 ?? ?? ?? ?? 75 ?? 83 E6 FE", 0, {0x48, 0x31, 0xC0, 0x90, 0x90}, false, 0, 0, {}, 0, false, false},
+    {"MapInCombat2", "74 ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 48 89 45 ?? 48 8D 4D ?? E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 48 83 BF", 0, {0xEB}, false, 0, 0, {}, 0, false, false},
+    {"RideAnywhere", "48 8B 40 68 80 78 36 00 0F 95 C0", 4, {0x30, 0xC0, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, 0, {}, 0, false, false},
+    {"HorseJump1", "0F B6 81 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? 80 B9", 0, {0xB0, 0x01, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, 0, {}, 0, false, false},
+    {"HorseJump2", "88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 88 87", 0, {}, true, 1, 0, {}, 0, false, false},
+    {"HorseAirJump", "E8 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 48 8B CF 88 87", 5, {}, true, 0, 0, {}, 0, false, false},
 };
 
 static bool code_write(uintptr_t a, const uint8_t* b, size_t n) {
@@ -458,7 +460,7 @@ static uintptr_t alloc_near(uintptr_t target) {
 static const char* kPatchAlt[P_COUNT] = {
     "E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 F2 3B 00 00",
     "74 2E C7 45 50 58 02 00 00 C7 45 54 02 00 00 00 C7 45 58 01 00 00 00",
-    nullptr, nullptr, nullptr};
+    nullptr, nullptr, nullptr, nullptr};
 
 static void patch_scan(CodePatch& p) {
     if (p.scanned) return;
@@ -478,9 +480,19 @@ bool patch_found(int id) {
 
 bool patch_on(int id) { return id >= 0 && id < P_COUNT && s_patches[id].on; }
 
+static bool patch_intact(const CodePatch& p) {
+    uint8_t b = 0;
+    if (!rd(p.addr, b)) return false;
+    return p.cave ? b == 0xE9 : (!p.bytes.empty() && b == p.bytes[0]);
+}
+
 bool patch_set(int id, bool on) {
     if (!patch_found(id)) return false;
     CodePatch& p = s_patches[id];
+    if (p.on && on && !patch_intact(p)) {
+        elog("Patch %s ecrase par le jeu, reapplication", p.name);
+        p.on = false;
+    }
     if (p.on == on) return true;
     if (on) {
         if (p.cave) {
@@ -492,7 +504,7 @@ bool patch_set(int id, bool on) {
             uint8_t c[32];
             size_t k = 0;
             c[k++] = 0xB0;
-            c[k++] = 0x01;
+            c[k++] = p.caveAl;
             memcpy(c + k, p.orig.data(), n);
             k += n;
             c[k++] = 0xE9;

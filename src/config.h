@@ -15,6 +15,7 @@ struct Config {
     bool rideAnywhere = false;
     bool dungeonWarp = false;
     bool torrentInfJump = false;
+    bool torrentAirJump = false;
     bool fastCast = false;
     float castSpeed = 6.0f;
     std::string castAnims;

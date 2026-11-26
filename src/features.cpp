@@ -440,16 +440,15 @@ static void tick_patches(Status& st) {
     static int lastWarp = -1;
     st.pMap = game::patch_found(game::P_MAP1) && game::patch_found(game::P_MAP2);
     st.pRide = game::patch_found(game::P_RIDE);
-    st.pJump = game::patch_found(game::P_HJUMP1) && game::patch_found(game::P_HJUMP2);
+    st.pJump = game::patch_found(game::P_HJUMP2);
+    st.pAir = game::patch_found(game::P_HFALL);
     if (st.pMap) {
         game::patch_set(game::P_MAP1, g_cfg.mapCombat);
         game::patch_set(game::P_MAP2, g_cfg.mapCombat);
     }
     if (st.pRide) game::patch_set(game::P_RIDE, g_cfg.rideAnywhere);
-    if (st.pJump) {
-        game::patch_set(game::P_HJUMP1, g_cfg.torrentInfJump);
-        game::patch_set(game::P_HJUMP2, g_cfg.torrentInfJump);
-    }
+    if (st.pJump) game::patch_set(game::P_HJUMP2, g_cfg.torrentInfJump);
+    if (st.pAir) game::patch_set(game::P_HFALL, g_cfg.torrentInfJump && g_cfg.torrentAirJump);
     int want = g_cfg.dungeonWarp ? 1 : 0;
     if (st.params && want != lastWarp) {
         int r = game::speffect_state_set(4270, want == 1);
