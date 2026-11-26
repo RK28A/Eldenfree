@@ -8,9 +8,13 @@ namespace feat {
 
 constexpr uint32_t GREYOLL_FLAG = 1050400800;
 
-enum class Act { ResetGreyoll, UnlockMap, UnlockGraces, UnlockBells, DupWeapon, RefreshInv, SaveCfg };
+enum class Act { ResetGreyoll, UnlockMap, UnlockGraces, UnlockBells, DupWeapon, RefreshInv, SaveCfg, OpenMenu, ResetCast };
 
 struct Status {
+    bool menus = false;
+    bool pMap = false, pRide = false, pJump = false, warpOk = false;
+    int castLearned = 0;
+    bool casting = false;
     bool core = false, params = false, player = false, itemGib = false, names = false, flags = false;
     int playerOff = -1;
     size_t paramCount = 0;
@@ -40,5 +44,13 @@ void post(Act a, uint32_t arg = 0);
 Status status();
 std::vector<WeaponRow> weapons();
 double now();
+
+struct GameMenu {
+    const char* label;
+    const char* group;
+    int event;
+    std::vector<int> args;
+};
+const std::vector<GameMenu>& game_menus();
 
 }

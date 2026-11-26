@@ -166,6 +166,28 @@ static void act_dup(uint32_t id) {
     refresh_weapons();
 }
 
+const std::vector<GameMenu>& game_menus() {
+    static const std::vector<GameMenu> m = {
+        {"Renforcer une arme", "Forge", 24, {0}},
+        {"Table de forge", "Forge", 24, {1}},
+        {"Cendres de guerre", "Forge", 48, {}},
+        {"Renaissance", "Rennala", 113, {}},
+        {"Apparence", "Rennala", 81, {0}},
+        {"Monter de niveau", "Site de gr\xC3\xA2" "ce", 31, {}},
+        {"R\xC3\xA9partir les fioles", "Site de gr\xC3\xA2" "ce", 105, {}},
+        {"M\xC3\xA9moriser des sorts", "Site de gr\xC3\xA2" "ce", 28, {0, 0}},
+        {"Mixture physick", "Site de gr\xC3\xA2" "ce", 130, {}},
+        {"Grandes runes", "Site de gr\xC3\xA2" "ce", 137, {}},
+        {"Retoucher une tenue", "Site de gr\xC3\xA2" "ce", 142, {111000, 111399}},
+        {"Coffre", "Site de gr\xC3\xA2" "ce", 30, {}},
+        {"Accorder les esprits", "Table ronde", 136, {}},
+    };
+    return m;
+}
+
+static std::unordered_set<int> s_castAnims;
+static void cast_save();
+
 static bool greyoll_reset() {
     bool ok = game::flag_set(GREYOLL_FLAG, false);
     game::flag_set(1050407800, false);
@@ -193,6 +215,18 @@ static void process_actions() {
         case Act::DupWeapon: act_dup(a.second); break;
         case Act::RefreshInv: refresh_weapons(); break;
         case Act::SaveCfg: cfg_save(); break;
+        case Act::ResetCast:
+            s_castAnims.clear();
+            cast_save();
+            msg("Sorts appris effac\xC3\xA9s");
+            break;
+        case Act::OpenMenu: {
+            auto& m = game_menus();
+            if (a.second >= m.size()) break;
+            if (!game::player()) { msg("Charge ta partie d'abord"); break; }
+            if (!game::ezstate_event(m[a.second].event, m[a.second].args)) msg("Menus : fonction du jeu introuvable");
+            break;
+        }
         }
     }
 }
@@ -389,6 +423,78 @@ static void tick_torrent(double t, uintptr_t tor, bool mounted, Status& st) {
     st.torrentMult = target;
 }
 
+static void tick_patches(Status& st) {
+    static int lastWarp = -1;
+    st.pMap = game::patch_found(game::P_MAP1) && game::patch_found(game::P_MAP2);
+    st.pRide = game::patch_found(game::P_RIDE);
+    st.pJump = game::patch_found(game::P_HJUMP1) && game::patch_found(game::P_HJUMP2);
+    if (st.pMap) {
+        game::patch_set(game::P_MAP1, g_cfg.mapCombat);
+        game::patch_set(game::P_MAP2, g_cfg.mapCombat);
+    }
+    if (st.pRide) game::patch_set(game::P_RIDE, g_cfg.rideAnywhere);
+    if (st.pJump) {
+        game::patch_set(game::P_HJUMP1, g_cfg.torrentInfJump);
+        game::patch_set(game::P_HJUMP2, g_cfg.torrentInfJump);
+    }
+    int want = g_cfg.dungeonWarp ? 1 : 0;
+    if (st.params && want != lastWarp) {
+        int r = game::speffect_state_set(4270, want == 1);
+        if (r == 1) lastWarp = want;
+        else if (r == -2) { lastWarp = want; elog("SpEffectParam : taille de ligne inattendue, teleportation donjons desactivee"); }
+    }
+    st.warpOk = lastWarp >= 0;
+}
+
+static bool s_castLoaded = false, s_castActive = false;
+static uint32_t s_lastFp = 0;
+static int s_lastCastHp = 0;
+
+static void cast_save() {
+    std::string r;
+    for (int a : s_castAnims) r += (r.empty() ? "" : ",") + std::to_string(a);
+    g_cfg.castAnims = r;
+    cfg_save();
+}
+
+static void tick_cast(uintptr_t pl, Status& st) {
+    if (!s_castLoaded) {
+        s_castLoaded = true;
+        const std::string& c = g_cfg.castAnims;
+        size_t i = 0;
+        while (i < c.size()) {
+            size_t k = c.find(',', i);
+            int v = atoi(c.substr(i, k == std::string::npos ? std::string::npos : k - i).c_str());
+            if (v > 0) s_castAnims.insert(v);
+            if (k == std::string::npos) break;
+            i = k + 1;
+        }
+    }
+    st.castLearned = (int)s_castAnims.size();
+    if (!pl) { s_castActive = false; return; }
+    uintptr_t P = game::pgd();
+    uint32_t fp = P ? mem::rdv<uint32_t>(P + g_cfg.offPgdFp) : 0;
+    int hp = 0, mhp = 0;
+    game::chr_hp(pl, hp, mhp);
+    int anim = game::cur_anim(pl);
+    if (g_cfg.fastCast && anim > 0 && s_lastFp && fp < s_lastFp && hp >= s_lastCastHp && !s_castAnims.count(anim)) {
+        s_castAnims.insert(anim);
+        cast_save();
+        elog("Animation de sort apprise : %d", anim);
+    }
+    s_lastFp = fp;
+    s_lastCastHp = hp;
+    bool want = g_cfg.fastCast && anim > 0 && s_castAnims.count(anim);
+    if (want) {
+        game::set_anim_speed(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f));
+        s_castActive = true;
+    } else if (s_castActive) {
+        game::set_anim_speed(pl, 1.f);
+        s_castActive = false;
+    }
+    st.casting = s_castActive;
+}
+
 static DWORD WINAPI scan_thread(void*) {
     ULONGLONG lastNames = 0;
     for (;;) {
@@ -431,6 +537,7 @@ static DWORD WINAPI tick_thread(void*) {
             st.params = game::params_ready();
             st.paramCount = game::params_count();
             st.itemGib = game::g.itemGib && game::g.mapItemMan;
+            st.menus = game::ezstate_ready();
             process_actions();
             tick_boss(t, st);
             st.flags = st.greyoll >= 0;
@@ -447,6 +554,8 @@ static DWORD WINAPI tick_thread(void*) {
             tick_runes(t, pl, st);
             tick_fall(t, pl, tor, mounted, st);
             tick_torrent(t, tor, mounted, st);
+            tick_patches(st);
+            tick_cast(pl, st);
             st.names = game::names_ready();
             if (pl && g_menuOpen && g_wantWeapons && t - lastWeps > 1.5) {
                 lastWeps = t;

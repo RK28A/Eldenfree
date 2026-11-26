@@ -21,6 +21,17 @@ static float getf(const wchar_t* s, const wchar_t* k, float d) {
     if (!buf[0]) return d;
     return (float)_wtof(buf);
 }
+static std::string gets(const wchar_t* s, const wchar_t* k) {
+    wchar_t buf[2048];
+    GetPrivateProfileStringW(s, k, L"", buf, 2048, ini().c_str());
+    std::string r;
+    for (wchar_t* p = buf; *p; ++p) r += (char)*p;
+    return r;
+}
+static void puts_(const wchar_t* s, const wchar_t* k, const std::string& v) {
+    std::wstring w(v.begin(), v.end());
+    WritePrivateProfileStringW(s, k, w.c_str(), ini().c_str());
+}
 static void puti(const wchar_t* s, const wchar_t* k, int v, bool hex = false) {
     wchar_t buf[64];
     if (hex) swprintf(buf, 64, v < 0 ? L"-0x%X" : L"0x%X", v < 0 ? -v : v);
@@ -45,6 +56,16 @@ void cfg_load() {
     c.noFallDamage = geti(L"Player", L"NoFallDamage", c.noFallDamage);
     c.fallSpeed = getf(L"Player", L"FallSpeed", c.fallSpeed);
     c.keepRunes = geti(L"Player", L"KeepRunes", c.keepRunes);
+    c.mapCombat = geti(L"World", L"MapInCombat", c.mapCombat);
+    c.rideAnywhere = geti(L"World", L"RideAnywhere", c.rideAnywhere);
+    c.dungeonWarp = geti(L"World", L"DungeonWarp", c.dungeonWarp);
+    c.torrentInfJump = geti(L"Torrent", L"InfiniteJump", c.torrentInfJump);
+    c.fastCast = geti(L"Player", L"FastCast", c.fastCast);
+    c.castSpeed = getf(L"Player", L"CastSpeed", c.castSpeed);
+    c.castAnims = gets(L"Player", L"CastAnims");
+    c.offTimeActMod = geti(L"Offsets", L"TimeActModule", c.offTimeActMod);
+    c.offPgdFp = geti(L"Offsets", L"PgdFp", c.offPgdFp);
+    c.offStateInfo = geti(L"Offsets", L"SpEffectStateInfo", c.offStateInfo);
     c.offPlayerIns = geti(L"Offsets", L"PlayerIns", c.offPlayerIns);
     c.offPgd = geti(L"Offsets", L"PlayerGameData", c.offPgd);
     c.offHpPgd = geti(L"Offsets", L"PgdHp", c.offHpPgd);
@@ -88,6 +109,16 @@ void cfg_save() {
     puti(L"Player", L"NoFallDamage", c.noFallDamage);
     putf(L"Player", L"FallSpeed", c.fallSpeed);
     puti(L"Player", L"KeepRunes", c.keepRunes);
+    puti(L"World", L"MapInCombat", c.mapCombat);
+    puti(L"World", L"RideAnywhere", c.rideAnywhere);
+    puti(L"World", L"DungeonWarp", c.dungeonWarp);
+    puti(L"Torrent", L"InfiniteJump", c.torrentInfJump);
+    puti(L"Player", L"FastCast", c.fastCast);
+    putf(L"Player", L"CastSpeed", c.castSpeed);
+    puts_(L"Player", L"CastAnims", c.castAnims);
+    puti(L"Offsets", L"TimeActModule", c.offTimeActMod, true);
+    puti(L"Offsets", L"PgdFp", c.offPgdFp, true);
+    puti(L"Offsets", L"SpEffectStateInfo", c.offStateInfo, true);
     puti(L"Offsets", L"PlayerIns", c.offPlayerIns, true);
     puti(L"Offsets", L"PlayerGameData", c.offPgd, true);
     puti(L"Offsets", L"PgdHp", c.offHpPgd, true);

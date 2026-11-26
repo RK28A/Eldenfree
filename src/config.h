@@ -13,6 +13,13 @@ struct Config {
     bool noFallDamage = false;
     float fallSpeed = 4.0f;
     bool keepRunes = false;
+    bool mapCombat = false;
+    bool rideAnywhere = false;
+    bool dungeonWarp = false;
+    bool torrentInfJump = false;
+    bool fastCast = false;
+    float castSpeed = 6.0f;
+    std::string castAnims;
 
     int offPlayerIns = 0;
     int offPgd = 0x8;
@@ -38,6 +45,9 @@ struct Config {
     int offChrId = 0x188;
     int offPhysFalling = 0x1D0;
     int offSummonSet = 0x10F90;
+    int offTimeActMod = 0x18;
+    int offPgdFp = 0x1C;
+    int offStateInfo = 0x156;
     int itemGibDelta = -0x52;
 };
 

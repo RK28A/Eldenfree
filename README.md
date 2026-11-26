@@ -5,10 +5,11 @@ Mod Elden Ring (DLL pour Mod Engine 2 2.1.0.0 / Vortex) avec un panneau en jeu s
 | Onglet | Fonction |
 |---|---|
 | Boss | Réapparition infinie de l'Ancien dragon Greyoll (flag `1050400800`) |
-| Monde | Révéler la carte · débloquer les sites de grâce · débloquer les pierres de forge chez les Sœurs jumelles |
+| Monde | Révéler la carte · sites de grâce · pierres de forge chez les Sœurs jumelles · carte/voyage rapide en combat · Torrent partout · voyage rapide depuis les mini-donjons |
+| Menus | Renforcer une arme, table de forge, cendres de guerre, renaissance, apparence et tous les menus de site de grâce |
 | Armes | Dupliquer une arme de l'inventaire (3 exemplaires max) |
-| Torrent | Multiplicateurs marche/trot et galop (x1 à x3) |
-| Joueur | Aucun dégât de chute · garder ses runes à la mort |
+| Torrent | Multiplicateurs marche/trot et galop (x1 à x3) · saut infini |
+| Joueur | Aucun dégât de chute · cast rapide · garder ses runes à la mort |
 | Diagnostic | État des signatures mémoire |
 
 Installation : voir `dist/LISEZMOI.txt`. Télécharger le zip prêt à l'emploi : [EldenFree.zip](https://github.com/RK28A/Eldenfree/releases/latest/download/EldenFree.zip) (généré par le workflow `build` à chaque push).
@@ -24,4 +25,5 @@ cmake --build build
 
 - [The Grand Archives – Elden Ring CT](https://github.com/The-Grand-Archives/Elden-Ring-CT-TGA) : flags (grâces, carte, cloches, Greyoll), ItemGib, NoDead/NoDamage, vitesse d'animation, runes
 - [fromsoftware-rs](https://github.com/vswarte/fromsoftware-rs) : structures ChrIns (modules chute, matériau, monture, physique), event flags, inventaire
+- [Hexinton Elden Ring CT](https://github.com/Hexinton/eldenringcheatengine) : patchs carte en combat, Torrent partout, saut infini
 - [Erd-Tools](https://github.com/Nordgaren/Erd-Tools) / [Erd-Tools-CPP](https://github.com/Nordgaren/Erd-Tools-CPP) : signatures AOB, SoloParamRepository

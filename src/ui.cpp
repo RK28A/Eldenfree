@@ -5,6 +5,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include <cstdio>
+#include <cstring>
 #include <cmath>
 #include <string>
 
@@ -231,7 +232,23 @@ static void tab_boss(const feat::Status& st) {
     card_end();
 }
 
+static void patch_toggle(const char* label, bool* v, bool found) {
+    if (!found) ImGui::BeginDisabled();
+    if (toggle(label, v)) save();
+    if (!found) {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        pill("Signature introuvable", C_BAD);
+    }
+}
+
 static void tab_world(const feat::Status& st) {
+    card_begin("travel", "D\xC3\xA9placements", "Carte et voyage rapide m\xC3\xAAme avec des ennemis proches, Torrent dans les donjons, t\xC3\xA9l\xC3\xA9portation depuis les mini-donjons.");
+    patch_toggle("Carte et voyage rapide en combat", &g_cfg.mapCombat, st.pMap);
+    patch_toggle("Torrent partout (donjons)", &g_cfg.rideAnywhere, st.pRide);
+    if (toggle("Voyage rapide depuis les mini-donjons", &g_cfg.dungeonWarp)) save();
+    card_end();
+
     card_begin("map", "Carte", "R\xC3\xA9v\xC3\xA8le tous les fragments de carte (surface + souterrain).");
     if (primary("R\xC3\xA9v\xC3\xA9ler toute la carte", st.flags)) feat::post(feat::Act::UnlockMap);
     card_end();
@@ -303,6 +320,42 @@ static void tab_weapons(const feat::Status& st) {
     }
 }
 
+static void tab_menus(const feat::Status& st) {
+    auto& menus = feat::game_menus();
+    if (!st.menus) pill("Fonction des menus du jeu introuvable", C_BAD);
+    const char* group = nullptr;
+    int col = 0;
+    float w = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    for (size_t i = 0; i < menus.size(); ++i) {
+        auto& m = menus[i];
+        if (!group || strcmp(group, m.group) != 0) {
+            if (group) ImGui::Dummy(ImVec2(0, 4));
+            group = m.group;
+            col = 0;
+            ImGui::PushStyleColor(ImGuiCol_Text, C_GOLD_HI);
+            ImGui::TextUnformatted(m.group);
+            ImGui::PopStyleColor();
+        }
+        if (col == 1) ImGui::SameLine();
+        ImGui::PushID((int)i);
+        bool first = i == 0 || i == 3;
+        bool clicked = first ? primary(m.label, st.menus && st.player, w) : (([&] {
+            if (!(st.menus && st.player)) ImGui::BeginDisabled();
+            bool r = ImGui::Button(m.label, ImVec2(w, 0));
+            if (!(st.menus && st.player)) ImGui::EndDisabled();
+            return r;
+        })());
+        if (clicked) {
+            feat::post(feat::Act::OpenMenu, (uint32_t)i);
+            feat::g_menuOpen = false;
+        }
+        ImGui::PopID();
+        col ^= 1;
+    }
+    ImGui::Dummy(ImVec2(0, 4));
+    hint("Le panneau se ferme et le menu du jeu s'ouvre, comme \xC3\xA0 un site de gr\xC3\xA2" "ce. La renaissance demande une Larme larvaire, comme chez Rennala.");
+}
+
 static void tab_torrent(const feat::Status& st) {
     card_begin("tor", "Vitesse de Torrent", "Acc\xC3\xA9l\xC3\xA8re Torrent (vitesse d'animation, comme les tables Cheat Engine), s\xC3\xA9par\xC3\xA9ment pour la marche/trot et le galop. Limit\xC3\xA9 \xC3\xA0 x3.");
     right_pill(!st.player ? "Hors partie" : st.mounted ? "\xC3\x80 cheval" : "\xC3\x80 pied", st.mounted ? C_OK : C_DIM);
@@ -312,6 +365,10 @@ static void tab_torrent(const feat::Status& st) {
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     if (mult_slider("Galop", &g_cfg.torrentRun)) {}
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    card_end();
+
+    card_begin("torjump", "Saut infini", "Torrent peut sauter \xC3\xA0 nouveau en l'air, sans limite.");
+    patch_toggle("Saut infini sur Torrent", &g_cfg.torrentInfJump, st.pJump);
     card_end();
 
     card_begin("torcal", "R\xC3\xA9glage du galop", "Au-dessus de ce seuil de vitesse (vitesse d'origine du jeu), Torrent est consid\xC3\xA9r\xC3\xA9 au galop.");
@@ -330,6 +387,19 @@ static void tab_player(const feat::Status& st) {
     right_pill(st.fallProtect ? "En chute" : "Pr\xC3\xAAt", st.fallProtect ? C_WARN : C_DIM);
     if (toggle("Aucun d\xC3\xA9g\xC3\xA2t de chute", &g_cfg.noFallDamage)) save();
     hint("Le minuteur de chute du jeu est remis \xC3\xA0 z\xC3\xA9ro en continu, le sol est trait\xC3\xA9 comme sans d\xC3\xA9g\xC3\xA2t de chute, et le personnage (et Torrent) est intouchable pendant la chute et l'atterrissage.");
+    card_end();
+
+    card_begin("cast", "Cast rapide", "Acc\xC3\xA9l\xC3\xA8re fortement l'animation des sorts (buffs, sorts, incantations, cendres de guerre).");
+    char cb[64];
+    snprintf(cb, sizeof(cb), "%d animations apprises", st.castLearned);
+    right_pill(st.casting ? "Cast en cours" : cb, st.casting ? C_WARN : C_DIM);
+    if (toggle("Cast rapide", &g_cfg.fastCast)) save();
+    ImGui::PushItemWidth(-1);
+    ImGui::SliderFloat("##cs", &g_cfg.castSpeed, 2.f, 10.f, "Vitesse du cast  x%.1f");
+    if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    ImGui::PopItemWidth();
+    hint("Chaque sort est appris automatiquement au premier lancement (d\xC3\xA8s qu'il consomme des PC), puis il est rapide les fois suivantes.");
+    if (ImGui::Button("Oublier les sorts appris")) feat::post(feat::Act::ResetCast);
     card_end();
 
     card_begin("runes", "Runes \xC3\xA0 la mort", "Tu gardes tes runes quand tu meurs. La tache de sang ne contient rien : pas de duplication.");
@@ -357,6 +427,10 @@ static void tab_diag(const feat::Status& st) {
         snprintf(b, sizeof(b), "WorldChrMan+0x%X", st.playerOff < 0 ? 0 : st.playerOff);
         status_row("Personnage", st.player, st.playerOff >= 0 ? b : "charge ta partie");
         status_row("ItemGib", st.itemGib);
+        status_row("Menus du jeu", st.menus);
+        status_row("Patch carte en combat", st.pMap);
+        status_row("Patch Torrent partout", st.pRide);
+        status_row("Patch saut infini", st.pJump);
         status_row("Noms d'armes", st.names);
         status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "appelle Torrent pour le d\xC3\xA9tecter");
         ImGui::EndTable();
@@ -406,6 +480,7 @@ void draw() {
         };
         tab("Boss", tab_boss);
         tab("Monde", tab_world);
+        tab("Menus", tab_menus);
         tab("Armes", tab_weapons);
         tab("Torrent", tab_torrent);
         tab("Joueur", tab_player);

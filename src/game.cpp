@@ -35,6 +35,11 @@ bool resolve() {
     if (!g.soloParam) g.soloParam = scan_rip("SoloParamRepo", "48 8B 0D ?? ?? ?? ?? 48 85 C9 0F 84 ?? ?? ?? ?? 45 33 C0 BA 90", 3, 7);
     if (!g.mapItemMan) g.mapItemMan = scan_rip("MapItemMan", "48 8B 0D ?? ?? ?? ?? C7 44 24 50 FF FF FF FF", 3, 7);
     if (!g.msgRepo) g.msgRepo = scan_rip("MsgRepository", "48 8B 3D ?? ?? ?? ?? 44 0F B6 30 48 85 FF 75", 3, 7);
+    if (!g.ezDispatch) {
+        uintptr_t a = aob("48 8B DA 4C 8B F1 33 FF 89 7D");
+        g.ezDispatch = a ? a - 0x47 : 0;
+        elog("AOB %-14s %s -> %p", "EzStateDispatch", g.ezDispatch ? "ok" : "INTROUVABLE", (void*)g.ezDispatch);
+    }
     if (!g.itemGib) {
         uintptr_t a = aob("8B 02 83 F8 0A");
         if (a) {
@@ -394,6 +399,234 @@ bool give_item(uint32_t id, int qty) {
     alignas(16) uint8_t out[0x200] = {};
     using Fn = void (*)(uintptr_t, void*, void*, uint64_t);
     ((Fn)g.itemGib)(mim, data, out, 0);
+    return true;
+}
+
+struct CodePatch {
+    const char* name;
+    const char* aob;
+    int off;
+    std::vector<uint8_t> bytes;
+    bool cave;
+    uintptr_t addr;
+    std::vector<uint8_t> orig;
+    uintptr_t caveMem;
+    bool on;
+    bool scanned;
+};
+
+static CodePatch s_patches[P_COUNT] = {
+    {"MapInCombat1", "E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 F2 3B 00 00", 0, {0x48, 0x31, 0xC0, 0x90, 0x90}, false, 0, {}, 0, false, false},
+    {"MapInCombat2", "74 2E C7 45 50 58 02 00 00 C7 45 54 02 00 00 00 C7 45 58 01 00 00 00", 0, {0xEB}, false, 0, {}, 0, false, false},
+    {"RideAnywhere", "48 8B 40 68 80 78 36 00 0F 95 C0", 4, {0x30, 0xC0, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, {}, 0, false, false},
+    {"HorseJump1", "0F B6 81 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? 80 B9", 0, {0xB0, 0x01, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, {}, 0, false, false},
+    {"HorseJump2", "88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 88 87", 0, {}, true, 0, {}, 0, false, false},
+};
+
+static bool code_write(uintptr_t a, const uint8_t* b, size_t n) {
+    DWORD old;
+    if (!VirtualProtect((void*)a, n, PAGE_EXECUTE_READWRITE, &old)) return false;
+    memcpy((void*)a, b, n);
+    VirtualProtect((void*)a, n, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)a, n);
+    return true;
+}
+
+static uintptr_t alloc_near(uintptr_t target) {
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    uintptr_t gran = si.dwAllocationGranularity;
+    uintptr_t lo = target > 0x70000000 ? target - 0x70000000 : 0x10000;
+    for (uintptr_t a = (target & ~(gran - 1)) - gran; a > lo; a -= gran) {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery((void*)a, &mbi, sizeof(mbi))) break;
+        if (mbi.State == MEM_FREE)
+            if (void* p = VirtualAlloc((void*)a, 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)) return (uintptr_t)p;
+    }
+    return 0;
+}
+
+static void patch_scan(CodePatch& p) {
+    if (p.scanned) return;
+    p.scanned = true;
+    uintptr_t a = aob(p.aob);
+    p.addr = a ? a + p.off : 0;
+    elog("Patch %-13s %s -> %p", p.name, p.addr ? "ok" : "INTROUVABLE", (void*)p.addr);
+}
+
+bool patch_found(int id) {
+    if (id < 0 || id >= P_COUNT) return false;
+    patch_scan(s_patches[id]);
+    return s_patches[id].addr != 0;
+}
+
+bool patch_on(int id) { return id >= 0 && id < P_COUNT && s_patches[id].on; }
+
+bool patch_set(int id, bool on) {
+    if (!patch_found(id)) return false;
+    CodePatch& p = s_patches[id];
+    if (p.on == on) return true;
+    if (on) {
+        if (p.cave) {
+            const size_t n = 6;
+            p.orig.resize(n);
+            memcpy(p.orig.data(), (void*)p.addr, n);
+            if (!p.caveMem) p.caveMem = alloc_near(p.addr);
+            if (!p.caveMem) return false;
+            uint8_t c[32];
+            size_t k = 0;
+            c[k++] = 0xB0;
+            c[k++] = 0x01;
+            memcpy(c + k, p.orig.data(), n);
+            k += n;
+            c[k++] = 0xE9;
+            int32_t back = (int32_t)((p.addr + n) - (p.caveMem + k + 4));
+            memcpy(c + k, &back, 4);
+            k += 4;
+            memcpy((void*)p.caveMem, c, k);
+            FlushInstructionCache(GetCurrentProcess(), (void*)p.caveMem, k);
+            uint8_t j[6] = {0xE9, 0, 0, 0, 0, 0x90};
+            int32_t to = (int32_t)(p.caveMem - (p.addr + 5));
+            memcpy(j + 1, &to, 4);
+            if (!code_write(p.addr, j, 6)) return false;
+        } else {
+            p.orig.resize(p.bytes.size());
+            memcpy(p.orig.data(), (void*)p.addr, p.bytes.size());
+            if (!code_write(p.addr, p.bytes.data(), p.bytes.size())) return false;
+        }
+    } else {
+        if (!code_write(p.addr, p.orig.data(), p.orig.size())) return false;
+    }
+    p.on = on;
+    elog("Patch %s %s", p.name, on ? "active" : "desactive");
+    return true;
+}
+
+static std::unordered_map<int, uint16_t> s_stateOrig;
+
+int speffect_state_set(int row, bool zero) {
+    auto t = param_tables("SP_EFFECT_PARAM_ST");
+    if (t.empty()) return -1;
+    uintptr_t d = param_find(t[0], row);
+    if (!d) return -1;
+    int idx = -1;
+    for (int i = 0, n = param_rows(t[0]); i < n; ++i) {
+        int32_t id;
+        uintptr_t dd;
+        if (param_row(t[0], i, id, dd) && id == row) { idx = i; break; }
+    }
+    int32_t nid;
+    uintptr_t next = 0;
+    if (idx < 0 || !param_row(t[0], idx + 1, nid, next) || next - d != 0x390) return -2;
+    uintptr_t f = d + g_cfg.offStateInfo;
+    uint16_t cur = rdv<uint16_t>(f);
+    if (zero) {
+        if (!s_stateOrig.count(row)) s_stateOrig[row] = cur;
+        return wr(f, (uint16_t)0) ? 1 : -1;
+    }
+    auto it = s_stateOrig.find(row);
+    if (it != s_stateOrig.end()) {
+        wr(f, it->second);
+        s_stateOrig.erase(it);
+    }
+    return 1;
+}
+
+int cur_anim(uintptr_t chr) {
+    uintptr_t ta = chr_module(chr, g_cfg.offTimeActMod);
+    if (!ta) return -1;
+    uint32_t ri = rdv<uint32_t>(ta + 0xC4, 0xFFFFFFFF);
+    if (ri >= 10) return -1;
+    return rdv<int32_t>(ta + 0x20 + ri * 0x10, -1);
+}
+
+struct EzArg {
+    union {
+        float f;
+        int32_t i;
+        uint64_t u;
+    } v;
+    int32_t type;
+    int32_t pad;
+};
+
+struct EzEvt;
+struct EzVmt {
+    void (*dtor)(EzEvt*);
+    void (*unk08)(EzEvt*);
+    int (*event_id)(EzEvt*);
+    int (*arg_count)(EzEvt*);
+    EzArg* (*arg_at)(EzEvt*, int);
+};
+
+struct EzEvt {
+    EzVmt* vt;
+    EzArg* args;
+    int count;
+};
+
+struct EzMenuJob {
+    uint32_t unk[4];
+    uint32_t jobId;
+    uint32_t pad;
+    void* parent;
+};
+
+struct EzTalkIns {
+    uint8_t unk0[0xC];
+    uint32_t f1;
+    uint32_t f2;
+    uint8_t unk14[0x40 - 0x14];
+    uint64_t handle;
+    uint8_t unk48[0x98 - 0x48];
+    EzMenuJob* job;
+};
+
+struct EzField08 {
+    uint8_t unk[0x30];
+    uint64_t handle;
+};
+
+struct EzTalkEvent {
+    void** vt;
+    EzField08* f08;
+    EzTalkIns* talk;
+    uint32_t unk18;
+};
+
+static void ez_stub(EzEvt*) {}
+static int ez_id(EzEvt* e) { return e->count ? e->args[0].v.i : 0; }
+static int ez_count(EzEvt* e) { return e->count; }
+static EzArg* ez_at(EzEvt* e, int i) { return e->args + i; }
+static EzVmt s_ezVmt = {ez_stub, ez_stub, ez_id, ez_count, ez_at};
+
+bool ezstate_ready() { return g.ezDispatch != 0; }
+
+bool ezstate_event(int id, const std::vector<int>& args) {
+    if (!g.ezDispatch) return false;
+    std::vector<EzArg> a(args.size() + 1);
+    a[0].v.u = 0;
+    a[0].v.i = id;
+    a[0].type = 2;
+    for (size_t k = 0; k < args.size(); ++k) {
+        a[k + 1].v.u = 0;
+        a[k + 1].v.i = args[k];
+        a[k + 1].type = 2;
+    }
+    EzField08* f08 = (EzField08*)calloc(1, sizeof(EzField08));
+    EzTalkIns* talk = (EzTalkIns*)calloc(1, sizeof(EzTalkIns));
+    EzMenuJob* job = (EzMenuJob*)calloc(1, sizeof(EzMenuJob));
+    f08->handle = ~0ull;
+    talk->handle = ~0ull;
+    talk->job = job;
+    job->parent = talk;
+    EzTalkEvent te{nullptr, f08, talk, 0};
+    EzEvt ev{&s_ezVmt, a.data(), (int)a.size()};
+    using Fn = void (*)(EzTalkEvent*, EzEvt*);
+    ((Fn)g.ezDispatch)(&te, &ev);
+    free(job);
+    free(talk);
+    free(f08);
     return true;
 }
 
