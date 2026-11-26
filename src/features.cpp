@@ -185,15 +185,49 @@ const std::vector<GameMenu>& game_menus() {
     return m;
 }
 
-static std::unordered_set<int> s_castAnims;
+static std::unordered_set<int> s_castAnims, s_castNo;
 static void cast_save();
 
 static bool greyoll_reset() {
     bool ok = game::flag_set(GREYOLL_FLAG, false);
     game::flag_set(1050407800, false);
-    game::flag_set(1050400599, true);
+    game::flag_set(1050400599, false);
     return ok;
 }
+
+static bool greyoll_respawn() {
+    bool ok = greyoll_reset();
+    uint32_t ent = game::grace_entity(76450);
+    bool warped = ok && game::warp_to(ent);
+    elog("Greyoll : reset %d, teleportation grace %u : %d", (int)ok, ent, (int)warped);
+    msg(!ok ? "Greyoll : flags introuvables"
+            : warped ? "Greyoll réapparaît : téléportation à Butte des dragons ouest"
+                     : "Greyoll : flags remis à zéro, téléporte-toi à une grâce pour recharger la zone");
+    return ok;
+}
+
+static std::mutex s_dm;
+static std::vector<std::tuple<double, Act, uint32_t>> s_delayed;
+
+static void post_delayed(Act a, uint32_t arg, double secs) {
+    std::lock_guard<std::mutex> lk(s_dm);
+    s_delayed.push_back({now() + secs, a, arg});
+}
+
+static void pump_delayed() {
+    std::vector<std::pair<Act, uint32_t>> due;
+    {
+        std::lock_guard<std::mutex> lk(s_dm);
+        double t = now();
+        for (auto it = s_delayed.begin(); it != s_delayed.end();) {
+            if (std::get<0>(*it) <= t) { due.push_back({std::get<1>(*it), std::get<2>(*it)}); it = s_delayed.erase(it); }
+            else ++it;
+        }
+    }
+    for (auto& d : due) post(d.first, d.second);
+}
+
+static void on_grace_pick(int which) { post_delayed(Act::OpenMenu, which == 1 ? 3u : 0u, 1.2); }
 
 static void process_actions() {
     for (;;) {
@@ -206,8 +240,7 @@ static void process_actions() {
         }
         switch (a.first) {
         case Act::ResetGreyoll:
-            msg(greyoll_reset() ? "Greyoll : flags remis à zéro, recharge la zone (grâce / téléportation)"
-                                : "Greyoll : flags introuvables");
+            greyoll_respawn();
             break;
         case Act::UnlockMap: act_map(); break;
         case Act::UnlockGraces: act_graces(); break;
@@ -217,6 +250,7 @@ static void process_actions() {
         case Act::SaveCfg: cfg_save(); break;
         case Act::ResetCast:
             s_castAnims.clear();
+            s_castNo.clear();
             cast_save();
             msg("Sorts appris effac\xC3\xA9s");
             break;
@@ -238,9 +272,8 @@ static void tick_boss(double t, Status& st) {
     if (!g_cfg.greyollRespawn || st.greyoll != 1) { s_greyollOnSince = 0; return; }
     if (s_greyollOnSince == 0) s_greyollOnSince = t;
     if (t - s_greyollOnSince >= g_cfg.respawnDelay) {
-        greyoll_reset();
         s_greyollOnSince = 0;
-        msg("Greyoll vaincu : il réapparaîtra au prochain rechargement de la zone");
+        greyoll_respawn();
     }
 }
 
@@ -393,33 +426,13 @@ static void tick_torrent(double t, uintptr_t tor, bool mounted, Status& st) {
         st.torrentBase = 0;
         return;
     }
-    float p[3];
-    if (!game::chr_pos(tor, p)) { s_tHave = false; return; }
-    double dt = t - s_tLastT;
-    if (!s_tHave || dt > 0.5) {
-        memcpy(s_tLast, p, 12);
-        s_tLastT = t;
-        s_tHave = true;
-    } else {
-        float dx = p[0] - s_tLast[0], dz = p[2] - s_tLast[2];
-        float d = std::sqrt(dx * dx + dz * dz);
-        if (d > 0.f || dt > 0.15) {
-            if (d < 20.f && dt > 0.002) {
-                float base = (d / (float)dt) / std::max(s_tMult, 1.f);
-                s_tSpeed = s_tSpeed * 0.7f + base * 0.3f;
-            }
-            memcpy(s_tLast, p, 12);
-            s_tLastT = t;
-        }
-    }
-    float target = s_tSpeed >= g_cfg.gallopThreshold ? g_cfg.torrentRun : g_cfg.torrentWalk;
+    float target = g_cfg.torrentMult;
     target = std::clamp(target, 1.f, 3.f);
     float cur = 1.f;
     game::anim_speed(tor, cur);
     if (std::fabs(cur - target) > 0.001f) game::set_anim_speed(tor, target);
     s_tMult = target;
     s_tTouched = true;
-    st.torrentBase = s_tSpeed;
     st.torrentMult = target;
 }
 
@@ -449,38 +462,71 @@ static void tick_patches(Status& st) {
 static bool s_castLoaded = false, s_castActive = false;
 static uint32_t s_lastFp = 0;
 static int s_lastCastHp = 0;
+static int s_pendAnim = -1;
+static double s_pendT = 0;
+static std::vector<std::pair<int, float>> s_pendFx;
+
+static void parse_set(const std::string& c, std::unordered_set<int>& out) {
+    size_t i = 0;
+    while (i < c.size()) {
+        size_t k = c.find(',', i);
+        int v = atoi(c.substr(i, k == std::string::npos ? std::string::npos : k - i).c_str());
+        if (v > 0) out.insert(v);
+        if (k == std::string::npos) break;
+        i = k + 1;
+    }
+}
+
+static std::string join_set(const std::unordered_set<int>& v) {
+    std::string r;
+    for (int a : v) r += (r.empty() ? "" : ",") + std::to_string(a);
+    return r;
+}
 
 static void cast_save() {
-    std::string r;
-    for (int a : s_castAnims) r += (r.empty() ? "" : ",") + std::to_string(a);
-    g_cfg.castAnims = r;
+    g_cfg.castAnims = join_set(s_castAnims);
+    g_cfg.castAnimsNo = join_set(s_castNo);
     cfg_save();
 }
 
 static void tick_cast(uintptr_t pl, Status& st) {
     if (!s_castLoaded) {
         s_castLoaded = true;
-        const std::string& c = g_cfg.castAnims;
-        size_t i = 0;
-        while (i < c.size()) {
-            size_t k = c.find(',', i);
-            int v = atoi(c.substr(i, k == std::string::npos ? std::string::npos : k - i).c_str());
-            if (v > 0) s_castAnims.insert(v);
-            if (k == std::string::npos) break;
-            i = k + 1;
-        }
+        parse_set(g_cfg.castAnims, s_castAnims);
+        parse_set(g_cfg.castAnimsNo, s_castNo);
     }
     st.castLearned = (int)s_castAnims.size();
-    if (!pl) { s_castActive = false; return; }
+    st.castAttack = (int)s_castNo.size();
+    if (!pl) { s_castActive = false; s_pendAnim = -1; return; }
     uintptr_t P = game::pgd();
     uint32_t fp = P ? mem::rdv<uint32_t>(P + g_cfg.offPgdFp) : 0;
     int hp = 0, mhp = 0;
     game::chr_hp(pl, hp, mhp);
     int anim = game::cur_anim(pl);
-    if (g_cfg.fastCast && anim > 0 && s_lastFp && fp < s_lastFp && hp >= s_lastCastHp && !s_castAnims.count(anim)) {
-        s_castAnims.insert(anim);
-        cast_save();
-        elog("Animation de sort apprise : %d", anim);
+    double t = now();
+    if (g_cfg.fastCast && s_pendAnim < 0 && anim > 0 && s_lastFp && fp < s_lastFp && hp >= s_lastCastHp &&
+        !s_castAnims.count(anim) && !s_castNo.count(anim)) {
+        s_pendAnim = anim;
+        s_pendT = t;
+        game::speffects(pl, s_pendFx);
+    }
+    if (s_pendAnim > 0) {
+        std::vector<std::pair<int, float>> fx;
+        game::speffects(pl, fx);
+        bool buff = false;
+        for (auto& e : fx) {
+            if (e.second < 8.f || e.second > 3600.f) continue;
+            bool known = false;
+            for (auto& o : s_pendFx)
+                if (o.first == e.first) { known = true; break; }
+            if (!known) { buff = true; break; }
+        }
+        if (buff || t - s_pendT > 2.5) {
+            (buff ? s_castAnims : s_castNo).insert(s_pendAnim);
+            elog("Animation %d apprise : %s", s_pendAnim, buff ? "buff" : "attaque");
+            s_pendAnim = -1;
+            cast_save();
+        }
     }
     s_lastFp = fp;
     s_lastCastHp = hp;
@@ -501,9 +547,13 @@ static DWORD WINAPI scan_thread(void*) {
         Sleep(300);
         uintptr_t pl = s_player.load();
         ULONGLONG tk = GetTickCount64();
-        if (pl && game::params_ready() && !game::names_ready() && (!lastNames || tk - lastNames > 30000)) {
+        if (pl && game::params_ready() && !game::msgs_ready() && (!lastNames || tk - lastNames > 30000)) {
             lastNames = tk;
             game::names_load();
+        }
+        if (g_cfg.graceMenu && game::msgs_ready() && !game::esd_ready()) {
+            game::esd_set_callback(on_grace_pick);
+            game::esd_install();
         }
         if (!pl || !(g_cfg.torrentSpeed || g_cfg.noFallDamage)) { s_torrent = 0; continue; }
         uintptr_t tor = s_torrent.load();
@@ -555,6 +605,9 @@ static DWORD WINAPI tick_thread(void*) {
             tick_fall(t, pl, tor, mounted, st);
             tick_torrent(t, tor, mounted, st);
             tick_patches(st);
+            pump_delayed();
+            st.esd = game::esd_ready();
+            st.warp = game::g.luaWarp && game::g.luaEventMan;
             tick_cast(pl, st);
             st.names = game::names_ready();
             if (pl && g_menuOpen && g_wantWeapons && t - lastWeps > 1.5) {

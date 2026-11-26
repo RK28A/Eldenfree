@@ -223,12 +223,12 @@ static void tab_boss(const feat::Status& st) {
     if (toggle("R\xC3\xA9" "apparition infinie", &g_cfg.greyollRespawn)) save();
     ImGui::PushItemWidth(-1);
     if (!g_cfg.greyollRespawn) ImGui::BeginDisabled();
-    ImGui::SliderFloat("##delay", &g_cfg.respawnDelay, 3.f, 60.f, "Remise \xC3\xA0 z\xC3\xA9ro %.0f s apr\xC3\xA8s la mort");
+    ImGui::SliderFloat("##delay", &g_cfg.respawnDelay, 3.f, 60.f, "R\xC3\xA9" "apparition %.0f s apr\xC3\xA8s sa mort");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     if (!g_cfg.greyollRespawn) ImGui::EndDisabled();
     ImGui::PopItemWidth();
     if (primary("Faire r\xC3\xA9" "appara\xC3\xAEtre maintenant", st.flags)) feat::post(feat::Act::ResetGreyoll);
-    hint("Le boss revient au prochain rechargement de la zone : repos \xC3\xA0 un site de gr\xC3\xA2" "ce, t\xC3\xA9l\xC3\xA9portation ou mort. Pas besoin de relancer le jeu.");
+    hint("Remet les 3 flags de Greyoll \xC3\xA0 z\xC3\xA9ro puis te t\xC3\xA9l\xC3\xA9porte \xC3\xA0 la gr\xC3\xA2" "ce Butte des dragons ouest pour recharger la zone : le dragon revient couch\xC3\xA9, avec sa barre de vie et son butin.");
     card_end();
 }
 
@@ -323,6 +323,12 @@ static void tab_weapons(const feat::Status& st) {
 static void tab_menus(const feat::Status& st) {
     auto& menus = feat::game_menus();
     if (!st.menus) pill("Fonction des menus du jeu introuvable", C_BAD);
+    if (toggle("Renaissance et Renforcer dans le menu de gr\xC3\xA2" "ce", &g_cfg.graceMenu)) save();
+    if (g_cfg.graceMenu) {
+        if (st.esd) pill("Ajout\xC3\xA9s au menu de gr\xC3\xA2" "ce", C_OK);
+        else pill("En attente (charge ta partie)", C_WARN);
+    }
+    ImGui::Dummy(ImVec2(0, 4));
     const char* group = nullptr;
     int col = 0;
     float w = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
@@ -357,13 +363,11 @@ static void tab_menus(const feat::Status& st) {
 }
 
 static void tab_torrent(const feat::Status& st) {
-    card_begin("tor", "Vitesse de Torrent", "Acc\xC3\xA9l\xC3\xA8re Torrent (vitesse d'animation, comme les tables Cheat Engine), s\xC3\xA9par\xC3\xA9ment pour la marche/trot et le galop. Limit\xC3\xA9 \xC3\xA0 x3.");
+    card_begin("tor", "Vitesse de Torrent", "Un seul multiplicateur pour toutes les allures de Torrent (marche, trot, galop). Limit\xC3\xA9 \xC3\xA0 x3.");
     right_pill(!st.player ? "Hors partie" : st.mounted ? "\xC3\x80 cheval" : "\xC3\x80 pied", st.mounted ? C_OK : C_DIM);
     if (toggle("Activer", &g_cfg.torrentSpeed)) save();
     ImGui::Dummy(ImVec2(0, 2));
-    if (mult_slider("Marche / trot", &g_cfg.torrentWalk)) {}
-    if (ImGui::IsItemDeactivatedAfterEdit()) save();
-    if (mult_slider("Galop", &g_cfg.torrentRun)) {}
+    mult_slider("Vitesse", &g_cfg.torrentMult);
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     card_end();
 
@@ -371,15 +375,6 @@ static void tab_torrent(const feat::Status& st) {
     patch_toggle("Saut infini sur Torrent", &g_cfg.torrentInfJump, st.pJump);
     card_end();
 
-    card_begin("torcal", "R\xC3\xA9glage du galop", "Au-dessus de ce seuil de vitesse (vitesse d'origine du jeu), Torrent est consid\xC3\xA9r\xC3\xA9 au galop.");
-    ImGui::PushItemWidth(-1);
-    ImGui::SliderFloat("##thr", &g_cfg.gallopThreshold, 4.f, 20.f, "Seuil galop  %.1f m/s");
-    if (ImGui::IsItemDeactivatedAfterEdit()) save();
-    ImGui::PopItemWidth();
-    char buf[96];
-    snprintf(buf, sizeof(buf), "Vitesse d'origine : %.1f m/s   \xC2\xB7   multiplicateur actif : x%.2f", st.torrentBase, st.torrentMult);
-    hint(buf);
-    card_end();
 }
 
 static void tab_player(const feat::Status& st) {
@@ -389,16 +384,16 @@ static void tab_player(const feat::Status& st) {
     hint("Le minuteur de chute du jeu est remis \xC3\xA0 z\xC3\xA9ro en continu, le sol est trait\xC3\xA9 comme sans d\xC3\xA9g\xC3\xA2t de chute, et le personnage (et Torrent) est intouchable pendant la chute et l'atterrissage.");
     card_end();
 
-    card_begin("cast", "Cast rapide", "Acc\xC3\xA9l\xC3\xA8re fortement l'animation des sorts (buffs, sorts, incantations, cendres de guerre).");
+    card_begin("cast", "Cast rapide des buffs", "Acc\xC3\xA9l\xC3\xA8re uniquement les buffs (sorts, incantations et cendres de guerre qui te donnent un effet). Les attaques gardent leur vitesse normale.");
     char cb[64];
-    snprintf(cb, sizeof(cb), "%d animations apprises", st.castLearned);
+    snprintf(cb, sizeof(cb), "%d buffs / %d attaques", st.castLearned, st.castAttack);
     right_pill(st.casting ? "Cast en cours" : cb, st.casting ? C_WARN : C_DIM);
     if (toggle("Cast rapide", &g_cfg.fastCast)) save();
     ImGui::PushItemWidth(-1);
     ImGui::SliderFloat("##cs", &g_cfg.castSpeed, 2.f, 10.f, "Vitesse du cast  x%.1f");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     ImGui::PopItemWidth();
-    hint("Chaque sort est appris automatiquement au premier lancement (d\xC3\xA8s qu'il consomme des PC), puis il est rapide les fois suivantes.");
+    hint("Au premier lancement, le mod regarde si un effet durable appara\xC3\xAEt sur toi : si oui c'est un buff (rapide les fois suivantes), sinon c'est une attaque (jamais acc\xC3\xA9l\xC3\xA9r\xC3\xA9" "e).");
     if (ImGui::Button("Oublier les sorts appris")) feat::post(feat::Act::ResetCast);
     card_end();
 
@@ -428,6 +423,8 @@ static void tab_diag(const feat::Status& st) {
         status_row("Personnage", st.player, st.playerOff >= 0 ? b : "charge ta partie");
         status_row("ItemGib", st.itemGib);
         status_row("Menus du jeu", st.menus);
+        status_row("Menu de gr\xC3\xA2" "ce \xC3\xA9tendu", st.esd);
+        status_row("T\xC3\xA9l\xC3\xA9portation", st.warp);
         status_row("Patch carte en combat", st.pMap);
         status_row("Patch Torrent partout", st.pRide);
         status_row("Patch saut infini", st.pJump);

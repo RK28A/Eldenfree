@@ -15,6 +15,9 @@ struct Status {
     bool pMap = false, pRide = false, pJump = false, warpOk = false;
     int castLearned = 0;
     bool casting = false;
+    bool esd = false;
+    bool warp = false;
+    int castAttack = 0;
     bool core = false, params = false, player = false, itemGib = false, names = false, flags = false;
     int playerOff = -1;
     size_t paramCount = 0;

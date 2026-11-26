@@ -7,6 +7,9 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
+#include <atomic>
+#include <cwctype>
+#include "MinHook.h"
 
 using namespace mem;
 
@@ -35,6 +38,12 @@ bool resolve() {
     if (!g.soloParam) g.soloParam = scan_rip("SoloParamRepo", "48 8B 0D ?? ?? ?? ?? 48 85 C9 0F 84 ?? ?? ?? ?? 45 33 C0 BA 90", 3, 7);
     if (!g.mapItemMan) g.mapItemMan = scan_rip("MapItemMan", "48 8B 0D ?? ?? ?? ?? C7 44 24 50 FF FF FF FF", 3, 7);
     if (!g.msgRepo) g.msgRepo = scan_rip("MsgRepository", "48 8B 3D ?? ?? ?? ?? 44 0F B6 30 48 85 FF 75", 3, 7);
+    if (!g.luaEventMan) g.luaEventMan = scan_rip("CSLuaEventMan", "48 83 3D ?? ?? ?? ?? 00 48 8B F9 0F 84 ?? ?? ?? ?? 48", 3, 8);
+    if (!g.luaWarp) {
+        uintptr_t a = aob("C3 ?? ?? ?? ?? ?? ?? 57 48 83 EC ?? 48 8B FA 44");
+        g.luaWarp = a ? a + 2 : 0;
+        elog("AOB %-14s %s -> %p", "LuaWarp", g.luaWarp ? "ok" : "INTROUVABLE", (void*)g.luaWarp);
+    }
     if (!g.ezDispatch) {
         uintptr_t a = aob("48 8B DA 4C 8B F1 33 FF 89 7D");
         g.ezDispatch = a ? a - 0x47 : 0;
@@ -416,8 +425,8 @@ struct CodePatch {
 };
 
 static CodePatch s_patches[P_COUNT] = {
-    {"MapInCombat1", "E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 F2 3B 00 00", 0, {0x48, 0x31, 0xC0, 0x90, 0x90}, false, 0, {}, 0, false, false},
-    {"MapInCombat2", "74 2E C7 45 50 58 02 00 00 C7 45 54 02 00 00 00 C7 45 58 01 00 00 00", 0, {0xEB}, false, 0, {}, 0, false, false},
+    {"MapInCombat1", "E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 ?? ?? ?? ?? 75 ?? 83 E6 FE", 0, {0x48, 0x31, 0xC0, 0x90, 0x90}, false, 0, {}, 0, false, false},
+    {"MapInCombat2", "74 ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 48 89 45 ?? 48 8D 4D ?? E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 48 83 BF", 0, {0xEB}, false, 0, {}, 0, false, false},
     {"RideAnywhere", "48 8B 40 68 80 78 36 00 0F 95 C0", 4, {0x30, 0xC0, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, {}, 0, false, false},
     {"HorseJump1", "0F B6 81 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? 80 B9", 0, {0xB0, 0x01, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, {}, 0, false, false},
     {"HorseJump2", "88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 88 87", 0, {}, true, 0, {}, 0, false, false},
@@ -446,10 +455,17 @@ static uintptr_t alloc_near(uintptr_t target) {
     return 0;
 }
 
+static const char* kPatchAlt[P_COUNT] = {
+    "E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 F2 3B 00 00",
+    "74 2E C7 45 50 58 02 00 00 C7 45 54 02 00 00 00 C7 45 58 01 00 00 00",
+    nullptr, nullptr, nullptr};
+
 static void patch_scan(CodePatch& p) {
     if (p.scanned) return;
     p.scanned = true;
     uintptr_t a = aob(p.aob);
+    int idx = (int)(&p - s_patches);
+    if (!a && kPatchAlt[idx]) a = aob(kPatchAlt[idx]);
     p.addr = a ? a + p.off : 0;
     elog("Patch %-13s %s -> %p", p.name, p.addr ? "ok" : "INTROUVABLE", (void*)p.addr);
 }
@@ -737,6 +753,7 @@ bool inventory(std::vector<InvItem>& out) {
 }
 
 static std::vector<uintptr_t> s_weaponFmgs;
+static std::vector<uintptr_t> s_allFmgs;
 static std::unordered_map<uint32_t, std::string> s_names;
 static std::mutex s_nm;
 static volatile bool s_namesReady = false;
@@ -808,6 +825,10 @@ void names_load() {
             if (d < 4) stack.push_back({q, d + 1});
         }
     }
+    {
+        std::lock_guard<std::mutex> lk(s_nm);
+        s_allFmgs = fmgs;
+    }
     auto weps = param_tables("EQUIP_PARAM_WEAPON_ST");
     std::vector<uintptr_t> sel;
     for (uintptr_t f : fmgs) {
@@ -865,6 +886,259 @@ std::string weapon_name(uint32_t id) {
     if (lvl) name += " +" + std::to_string(lvl);
     if (s_namesReady) s_names[id] = name;
     return name;
+}
+
+}
+
+namespace game {
+
+static std::wstring lower(std::wstring w) {
+    for (auto& c : w) c = (wchar_t)towlower(c);
+    while (!w.empty() && iswspace(w.back())) w.pop_back();
+    return w;
+}
+
+bool msgs_ready() {
+    std::lock_guard<std::mutex> lk(s_nm);
+    return !s_allFmgs.empty();
+}
+
+std::vector<uint32_t> find_msgs(const std::vector<std::wstring>& texts, bool prefix) {
+    std::vector<uintptr_t> fmgs;
+    {
+        std::lock_guard<std::mutex> lk(s_nm);
+        fmgs = s_allFmgs;
+    }
+    std::vector<std::wstring> want;
+    for (auto& t : texts) want.push_back(lower(t));
+    std::vector<uint32_t> out;
+    for (uintptr_t f : fmgs)
+        fmg_ids(f, [&](uint32_t id) {
+            std::wstring s;
+            if (!fmg_get(f, id, s) || s.size() > 60) return;
+            s = lower(s);
+            for (auto& w : want)
+                if (prefix ? s.rfind(w, 0) == 0 : s == w) {
+                    if (std::find(out.begin(), out.end(), id) == out.end()) out.push_back(id);
+                    break;
+                }
+        });
+    return out;
+}
+
+uintptr_t rtti_vtable(const char* mangled) {
+    size_t n = strlen(mangled);
+    std::string pat;
+    for (size_t i = 0; i < n; ++i) {
+        char b[4];
+        snprintf(b, sizeof(b), "%02X ", (unsigned char)mangled[i]);
+        pat += b;
+    }
+    pat += "00";
+    uintptr_t str = aob(pat.c_str());
+    if (!str) return 0;
+    uint32_t tdRva = (uint32_t)(str - 0x10 - g_base);
+    uintptr_t col = 0;
+    for (uintptr_t a = g_base; a < g_end && !col;) {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery((void*)a, &mbi, sizeof(mbi))) break;
+        uintptr_t rb = (uintptr_t)mbi.BaseAddress, re = rb + mbi.RegionSize;
+        if (re > g_end) re = g_end;
+        DWORD pr = mbi.Protect & 0xFF;
+        if (mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD) && (pr == PAGE_READONLY || pr == PAGE_READWRITE || pr == PAGE_EXECUTE_READ || pr == PAGE_EXECUTE_READWRITE))
+            for (uintptr_t p = rb + 0xC; p + 12 <= re; p += 4) {
+                if (*(uint32_t*)p != tdRva) continue;
+                uintptr_t c = p - 0xC;
+                if (*(uint32_t*)c == 1 && *(uint32_t*)(c + 4) == 0 && *(uint32_t*)(c + 0x14) == (uint32_t)(c - g_base)) { col = c; break; }
+            }
+        a = re;
+    }
+    if (!col) return 0;
+    for (uintptr_t a = g_base; a < g_end;) {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery((void*)a, &mbi, sizeof(mbi))) break;
+        uintptr_t rb = (uintptr_t)mbi.BaseAddress, re = rb + mbi.RegionSize;
+        if (re > g_end) re = g_end;
+        DWORD pr = mbi.Protect & 0xFF;
+        if (mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD) && (pr == PAGE_READONLY || pr == PAGE_READWRITE))
+            for (uintptr_t p = (rb + 7) & ~7ull; p + 16 <= re; p += 8)
+                if (*(uint64_t*)p == col && in_image(*(uint64_t*)(p + 8))) return p + 8;
+        a = re;
+    }
+    return 0;
+}
+
+using EzEventFn = void (*)(void*, void*);
+using EzEnvFn = void* (*)(void*, void*, void*);
+static EzEventFn s_oEvent = nullptr;
+static EzEnvFn s_oEnv = nullptr;
+static std::atomic<bool> s_esdReady{false};
+static uint32_t s_msgRebirth = 0, s_msgForge = 0;
+static std::vector<uint32_t> s_msgLevelUp, s_msgQuit;
+static void (*s_esdCb)(int) = nullptr;
+static thread_local bool tl_inject = false;
+static void* s_listOwner = nullptr;
+static bool s_isGrace = false, s_injected = false, s_armed = false;
+static int s_quitIdx = -1, s_lastIdx = -1, s_arg3 = -1, s_argc = 4;
+static constexpr int kIdRebirth = 9001, kIdForge = 9002;
+
+static bool has_id(const std::vector<uint32_t>& v, uint32_t id) { return std::find(v.begin(), v.end(), id) != v.end(); }
+
+static int ev_int(void* ext, int i) {
+    void** vt = *(void***)ext;
+    auto at = (EzArg * (*)(void*, int)) vt[4];
+    EzArg* a = at(ext, i);
+    if (!a) return 0;
+    return a->type == 1 ? (int)a->v.f : a->v.i;
+}
+
+static void inject_entries(void* talkEvent) {
+    if (s_injected) return;
+    s_injected = true;
+    s_armed = true;
+    tl_inject = true;
+    for (auto [idx, msg] : {std::pair<int, uint32_t>{kIdRebirth, s_msgRebirth}, {kIdForge, s_msgForge}}) {
+        if (!msg) continue;
+        EzArg a[4] = {};
+        a[0].v.i = 19; a[0].type = 2;
+        a[1].v.i = idx; a[1].type = 2;
+        a[2].v.i = (int32_t)msg; a[2].type = 2;
+        a[3].v.i = s_arg3; a[3].type = 2;
+        EzEvt ev{&s_ezVmt, a, s_argc > 4 ? 4 : s_argc};
+        s_oEvent(talkEvent, &ev);
+    }
+    tl_inject = false;
+}
+
+static void hk_event(void* talkEvent, void* ext) {
+    if (!tl_inject && ext && s_esdReady) {
+        void** vt = *(void***)ext;
+        int id = ((int (*)(void*))vt[2])(ext);
+        int argc = ((int (*)(void*))vt[3])(ext);
+        if (id == 20) {
+            s_listOwner = talkEvent;
+            s_isGrace = s_injected = false;
+            s_quitIdx = s_lastIdx = -1;
+        } else if (id == 19 && argc >= 3) {
+            if (talkEvent != s_listOwner) {
+                s_listOwner = talkEvent;
+                s_isGrace = s_injected = false;
+            }
+            int idx = ev_int(ext, 1);
+            uint32_t msg = (uint32_t)ev_int(ext, 2);
+            s_argc = argc;
+            if (argc >= 4) s_arg3 = ev_int(ext, 3);
+            if (has_id(s_msgLevelUp, msg)) s_isGrace = true;
+            if (has_id(s_msgQuit, msg)) {
+                s_quitIdx = idx;
+                if (s_isGrace) inject_entries(talkEvent);
+            }
+            s_lastIdx = idx;
+        } else if ((id == 10 || id == 76) && s_isGrace && talkEvent == s_listOwner) {
+            if (s_quitIdx < 0) s_quitIdx = s_lastIdx;
+            inject_entries(talkEvent);
+        }
+    }
+    s_oEvent(talkEvent, ext);
+}
+
+static void* hk_env(void* env, void* result, void* query) {
+    void* r = s_oEnv(env, result, query);
+    if (s_armed && result) {
+        EzArg* v = (EzArg*)result;
+        if (v->type == 2 && (v->v.i == kIdRebirth || v->v.i == kIdForge)) {
+            int which = v->v.i;
+            v->v.i = s_quitIdx >= 0 ? s_quitIdx : 0;
+            s_armed = false;
+            if (s_esdCb) s_esdCb(which == kIdRebirth ? 1 : 0);
+        }
+    }
+    return r;
+}
+
+void esd_set_callback(void (*cb)(int)) { s_esdCb = cb; }
+bool esd_ready() { return s_esdReady; }
+
+bool esd_install() {
+    if (s_esdReady) return true;
+    if (!msgs_ready() || !g.ezDispatch) return false;
+    static bool tried = false;
+    if (tried) return false;
+    tried = true;
+    auto reb = find_msgs({L"Renaissance", L"Rebirth", L"Renacer", L"Rinascita", L"Wiedergeburt"}, false);
+    auto forge = find_msgs({L"Renforcer l'armement", L"Renforcer l’armement", L"Strengthen armament", L"Strengthen armaments"}, false);
+    if (forge.empty()) forge = find_msgs({L"Renforcer", L"Strengthen"}, true);
+    s_msgLevelUp = find_msgs({L"Monter de niveau", L"Level Up", L"Level up"}, false);
+    s_msgQuit = find_msgs({L"Quitter", L"Leave"}, false);
+    s_msgRebirth = reb.empty() ? 0 : reb[0];
+    s_msgForge = forge.empty() ? 0 : forge[0];
+    uintptr_t envVt = rtti_vtable(".?AVCSEzStateTalkEnv@CS@@");
+    uintptr_t evVt = rtti_vtable(".?AVCSEzStateTalkEvent@CS@@");
+    uintptr_t envFn = envVt ? rdv<uintptr_t>(envVt + 8) : 0;
+    uintptr_t evFn = evVt ? rdv<uintptr_t>(evVt + 8) : g.ezDispatch;
+    elog("ESD: renaissance=%u forge=%u niveau=%zu quitter=%zu envVt=%p evVt=%p ev=%p dispatch=%p", s_msgRebirth, s_msgForge,
+         s_msgLevelUp.size(), s_msgQuit.size(), (void*)envVt, (void*)evVt, (void*)evFn, (void*)g.ezDispatch);
+    if (!envFn || !evFn || !(s_msgRebirth || s_msgForge) || s_msgLevelUp.empty()) return false;
+    MH_Initialize();
+    if (MH_CreateHook((void*)evFn, (void*)hk_event, (void**)&s_oEvent) != MH_OK) return false;
+    if (MH_CreateHook((void*)envFn, (void*)hk_env, (void**)&s_oEnv) != MH_OK) return false;
+    if (MH_EnableHook((void*)evFn) != MH_OK || MH_EnableHook((void*)envFn) != MH_OK) return false;
+    s_esdReady = true;
+    elog("ESD: menu de grace etendu");
+    return true;
+}
+
+static uintptr_t s_magicData = 0;
+
+int selected_spell() {
+    uintptr_t P = pgd();
+    if (!P) return -1;
+    if (!s_magicData || rdv<uintptr_t>(s_magicData + 8) != P + 0x2B0) {
+        s_magicData = 0;
+        for (int off = 0x2B0; off < 0x1000 && !s_magicData; off += 8) {
+            uintptr_t m = ptr(P + off);
+            if (m && rdv<uintptr_t>(m + 8) == P + 0x2B0) {
+                int sel = rdv<int32_t>(m + 0x80, 99);
+                if (sel >= -1 && sel < 14) s_magicData = m;
+            }
+        }
+        if (!s_magicData) return -1;
+    }
+    int sel = rdv<int32_t>(s_magicData + 0x80, -1);
+    if (sel < 0 || sel >= 14) return -1;
+    return rdv<int32_t>(s_magicData + 0x10 + sel * 8, -1);
+}
+
+void speffects(uintptr_t chr, std::vector<std::pair<int, float>>& out) {
+    out.clear();
+    uintptr_t se = ptr(chr + 0x178);
+    uintptr_t e = se ? ptr(se + 8) : 0;
+    for (int i = 0; e && i < 256; ++i) {
+        out.push_back({rdv<int32_t>(e + 8, -1), rdv<float>(e + 0x48, 0.f)});
+        e = ptr(e + 0x30);
+    }
+}
+
+
+uint32_t grace_entity(uint32_t graceFlag) {
+    for (uintptr_t t : param_tables("BONFIRE_WARP_PARAM_ST"))
+        for (int i = 0, n = param_rows(t); i < n; ++i) {
+            int32_t id;
+            uintptr_t d;
+            if (param_row(t, i, id, d) && rdv<uint32_t>(d + 4) == graceFlag) return rdv<uint32_t>(d + 8);
+        }
+    return 0;
+}
+
+bool warp_to(uint32_t entity) {
+    if (!g.luaWarp || !g.luaEventMan || !entity) return false;
+    uintptr_t man = ptr(g.luaEventMan);
+    if (!man) return false;
+    uintptr_t proxy = ptr(man + 8), imit = ptr(man + 0x18);
+    if (!proxy || !imit) return false;
+    using Fn = void (*)(uintptr_t, uintptr_t, uint64_t);
+    ((Fn)g.luaWarp)(imit, proxy, (uint64_t)(entity - 1000));
+    return true;
 }
 
 }

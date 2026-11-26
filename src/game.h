@@ -14,6 +14,8 @@ struct Addrs {
     uintptr_t itemGib = 0;
     uintptr_t msgRepo = 0;
     uintptr_t ezDispatch = 0;
+    uintptr_t luaEventMan = 0;
+    uintptr_t luaWarp = 0;
 };
 extern Addrs g;
 
@@ -56,6 +58,16 @@ bool patch_set(int id, bool on);
 bool patch_on(int id);
 int speffect_state_set(int row, bool zero);
 int cur_anim(uintptr_t chr);
+bool msgs_ready();
+std::vector<uint32_t> find_msgs(const std::vector<std::wstring>& texts, bool prefix);
+uintptr_t rtti_vtable(const char* mangled);
+bool esd_install();
+bool esd_ready();
+void esd_set_callback(void (*cb)(int));
+int selected_spell();
+uint32_t grace_entity(uint32_t graceFlag);
+bool warp_to(uint32_t bonfireEntity);
+void speffects(uintptr_t chr, std::vector<std::pair<int, float>>& out);
 
 struct InvItem { uint32_t handle, id, qty; };
 bool inventory(std::vector<InvItem>& out);

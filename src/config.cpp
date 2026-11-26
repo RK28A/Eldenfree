@@ -50,9 +50,7 @@ void cfg_load() {
     c.greyollRespawn = geti(L"Boss", L"GreyollRespawn", c.greyollRespawn);
     c.respawnDelay = getf(L"Boss", L"RespawnDelay", c.respawnDelay);
     c.torrentSpeed = geti(L"Torrent", L"Enabled", c.torrentSpeed);
-    c.torrentWalk = getf(L"Torrent", L"Walk", c.torrentWalk);
-    c.torrentRun = getf(L"Torrent", L"Run", c.torrentRun);
-    c.gallopThreshold = getf(L"Torrent", L"GallopThreshold", c.gallopThreshold);
+    c.torrentMult = getf(L"Torrent", L"Speed", c.torrentMult);
     c.noFallDamage = geti(L"Player", L"NoFallDamage", c.noFallDamage);
     c.fallSpeed = getf(L"Player", L"FallSpeed", c.fallSpeed);
     c.keepRunes = geti(L"Player", L"KeepRunes", c.keepRunes);
@@ -63,6 +61,8 @@ void cfg_load() {
     c.fastCast = geti(L"Player", L"FastCast", c.fastCast);
     c.castSpeed = getf(L"Player", L"CastSpeed", c.castSpeed);
     c.castAnims = gets(L"Player", L"CastAnims");
+    c.castAnimsNo = gets(L"Player", L"CastAnimsAttack");
+    c.graceMenu = geti(L"World", L"GraceMenuButtons", c.graceMenu);
     c.offTimeActMod = geti(L"Offsets", L"TimeActModule", c.offTimeActMod);
     c.offPgdFp = geti(L"Offsets", L"PgdFp", c.offPgdFp);
     c.offStateInfo = geti(L"Offsets", L"SpEffectStateInfo", c.offStateInfo);
@@ -91,10 +91,8 @@ void cfg_load() {
     c.offPhysFalling = geti(L"Offsets", L"PhysicsFalling", c.offPhysFalling);
     c.offSummonSet = geti(L"Offsets", L"SummonBuddySet", c.offSummonSet);
     c.itemGibDelta = geti(L"Offsets", L"ItemGibDelta", c.itemGibDelta);
-    if (c.torrentWalk < 1.f) c.torrentWalk = 1.f;
-    if (c.torrentWalk > 3.f) c.torrentWalk = 3.f;
-    if (c.torrentRun < 1.f) c.torrentRun = 1.f;
-    if (c.torrentRun > 3.f) c.torrentRun = 3.f;
+    if (c.torrentMult < 1.f) c.torrentMult = 1.f;
+    if (c.torrentMult > 3.f) c.torrentMult = 3.f;
 }
 
 void cfg_save() {
@@ -103,9 +101,7 @@ void cfg_save() {
     puti(L"Boss", L"GreyollRespawn", c.greyollRespawn);
     putf(L"Boss", L"RespawnDelay", c.respawnDelay);
     puti(L"Torrent", L"Enabled", c.torrentSpeed);
-    putf(L"Torrent", L"Walk", c.torrentWalk);
-    putf(L"Torrent", L"Run", c.torrentRun);
-    putf(L"Torrent", L"GallopThreshold", c.gallopThreshold);
+    putf(L"Torrent", L"Speed", c.torrentMult);
     puti(L"Player", L"NoFallDamage", c.noFallDamage);
     putf(L"Player", L"FallSpeed", c.fallSpeed);
     puti(L"Player", L"KeepRunes", c.keepRunes);
@@ -116,6 +112,8 @@ void cfg_save() {
     puti(L"Player", L"FastCast", c.fastCast);
     putf(L"Player", L"CastSpeed", c.castSpeed);
     puts_(L"Player", L"CastAnims", c.castAnims);
+    puts_(L"Player", L"CastAnimsAttack", c.castAnimsNo);
+    puti(L"World", L"GraceMenuButtons", c.graceMenu);
     puti(L"Offsets", L"TimeActModule", c.offTimeActMod, true);
     puti(L"Offsets", L"PgdFp", c.offPgdFp, true);
     puti(L"Offsets", L"SpEffectStateInfo", c.offStateInfo, true);

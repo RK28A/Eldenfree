@@ -7,9 +7,7 @@ struct Config {
     bool greyollRespawn = false;
     float respawnDelay = 10.0f;
     bool torrentSpeed = false;
-    float torrentWalk = 1.0f;
-    float torrentRun = 1.0f;
-    float gallopThreshold = 11.0f;
+    float torrentMult = 1.0f;
     bool noFallDamage = false;
     float fallSpeed = 4.0f;
     bool keepRunes = false;
@@ -20,6 +18,8 @@ struct Config {
     bool fastCast = false;
     float castSpeed = 6.0f;
     std::string castAnims;
+    std::string castAnimsNo;
+    bool graceMenu = true;
 
     int offPlayerIns = 0;
     int offPgd = 0x8;
