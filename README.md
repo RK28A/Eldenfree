@@ -1,6 +1,6 @@
 # EldenFree
 
-Mod Elden Ring (DLL pour Mod Engine 2 2.1.0.0 / Vortex) avec un panneau en jeu sur **F10**.
+Mod Elden Ring avec un panneau en jeu sur **F10**. `EldenFree.exe` lance le jeu hors ligne et injecte le mod tout seul (plus besoin de Vortex / Mod Engine). La DLL reste utilisable avec Mod Engine 2.
 
 | Onglet | Fonction |
 |---|---|

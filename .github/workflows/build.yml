@@ -8,6 +8,7 @@ on:
       - "CMakeLists.txt"
       - "dist/**"
       - "cmake/**"
+      - "launcher/**"
       - ".github/workflows/build.yml"
 
 permissions:
@@ -28,7 +29,7 @@ jobs:
       - name: Package
         run: |
           mkdir pkg
-          cp build/EldenFree.dll dist/LISEZMOI.txt dist/config_eldenring.example.toml pkg/
+          cp build/launcher/EldenFree.exe build/EldenFree.dll dist/LISEZMOI.txt dist/config_eldenring.example.toml pkg/
           cd pkg && zip -q ../EldenFree.zip *
       - uses: actions/upload-artifact@v4
         with:
@@ -44,4 +45,4 @@ jobs:
           make_latest: true
           files: EldenFree.zip
           body: |
-            Télécharger EldenFree.zip, extraire EldenFree.dll dans ModEngine2\mod\EldenFree\ et l'ajouter à external_dlls dans config_eldenring.toml (voir LISEZMOI.txt).
+            Télécharger EldenFree.zip, lancer EldenFree.exe (Steam ouvert) : le jeu démarre hors ligne avec le mod. F10 en jeu.

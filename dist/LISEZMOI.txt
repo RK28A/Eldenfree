@@ -1,19 +1,18 @@
-EldenFree - mod Elden Ring pour Mod Engine 2 (2.1.0.0)
+EldenFree - mod Elden Ring
 
-INSTALLATION
-1. Copie EldenFree.dll dans le dossier de Mod Engine 2, par ex. ModEngine2\mod\EldenFree\
-2. Dans config_eldenring.toml, ajoute le chemin dans external_dlls :
-     external_dlls = [ "mod\\EldenFree\\EldenFree.dll" ]
-   (voir config_eldenring.example.toml)
-3. Lance le jeu via Mod Engine 2 / Vortex (EAC desactive, hors ligne).
+UTILISATION SIMPLE (sans Vortex ni Mod Engine)
+1. Ouvre Steam.
+2. Double-clique sur EldenFree.exe : il trouve le jeu, le lance hors ligne
+   (sans Easy Anti-Cheat) et injecte le mod. Si le jeu est deja lance hors
+   ligne, il injecte directement.
+3. En jeu : F10 ouvre / ferme le panneau (la souris est liberee).
 
-UTILISATION
-F10 : ouvre / ferme le panneau. La souris est liberee et le jeu ne recoit plus
-les entrees tant que le panneau est ouvert.
+Reglages (EldenFree.ini) et journal (EldenFree.log) :
+  %LOCALAPPDATA%\EldenFree
 
-FICHIERS
-EldenFree.ini : cree au premier lancement a cote de la DLL (reglages + offsets).
-EldenFree.log : journal (signatures trouvees, erreurs).
+AVEC MOD ENGINE 2 (optionnel)
+Mets EldenFree.dll dans ModEngine2\mod\EldenFree\ et ajoute-le a external_dlls
+dans config_eldenring.toml (voir config_eldenring.example.toml).
 
-Fais une copie de ta sauvegarde (%APPDATA%\EldenRing) avant d'utiliser les
-deblocages (carte, graces, cloches) : ils sont permanents sur la sauvegarde.
+Joue uniquement hors ligne avec le mod. Fais une copie de ta sauvegarde
+(%APPDATA%\EldenRing) avant les deblocages (carte, graces, cloches).
