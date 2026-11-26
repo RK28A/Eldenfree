@@ -19,6 +19,7 @@ struct Status {
     bool warp = false;
     int jumpLearned = 0;
     bool flying = false;
+    bool pauseLearned = false;
     int castAttack = 0;
     bool core = false, params = false, player = false, itemGib = false, names = false, flags = false;
     int playerOff = -1;
@@ -43,6 +44,8 @@ struct WeaponRow {
 
 extern std::atomic<bool> g_menuOpen;
 extern std::atomic<bool> g_wantWeapons;
+extern std::atomic<bool> g_gameMenu;
+extern std::atomic<bool> g_fromGameMenu;
 
 void start();
 void post(Act a, uint32_t arg = 0);

@@ -69,11 +69,17 @@ static std::atomic<uint32_t> g_padSticks{0};
 static std::atomic<uint32_t> g_padTrig{0};
 static std::atomic<bool> g_padToggle{false};
 static std::atomic<bool> g_padSeen{false};
+static std::atomic<bool> g_padBlock{false};
+static std::atomic<bool> g_kbBlock{false};
 static std::atomic<int> g_rawBtn{0}, g_diBtn{0};
 static POINT g_lastSys{-99999, -99999};
 static ImVec2 g_vpos{0, 0};
 
 HWND hwnd() { return g_hwnd; }
+void block_inputs_until_release() {
+    g_padBlock = true;
+    g_kbBlock = true;
+}
 uint32_t pad_buttons() { return g_padButtons.load(); }
 bool pad_seen() { return g_padSeen.load(); }
 void pad_stick(float& x, float& y) {
@@ -160,15 +166,9 @@ static bool init(IDXGISwapChain3* sc) {
     return true;
 }
 
-static void toggle_check() {
-    static bool prev = false;
-    bool down = (GetAsyncKeyState(g_cfg.toggleKey) & 0x8000) != 0;
-    bool fg = GetForegroundWindow() == g_hwnd;
-    bool pad = g_padToggle.exchange(false);
-    if ((down && !prev && fg) || pad) {
-        bool open = !feat::g_menuOpen;
-        feat::g_menuOpen = open;
-        if (open) {
+static void open_effects() {
+    {
+        {
             if (oClip) oClip(nullptr);
             RECT rc;
             GetClientRect(g_hwnd, &rc);
@@ -179,6 +179,23 @@ static void toggle_check() {
             g_lastSys = c;
             g_dx = g_dy = g_wheel = 0;
         }
+    }
+}
+
+static void open_panel(bool fromGameMenu) {
+    feat::g_fromGameMenu = fromGameMenu;
+    feat::g_menuOpen = true;
+    open_effects();
+}
+
+static void toggle_check() {
+    static bool prev = false;
+    bool down = (GetAsyncKeyState(g_cfg.toggleKey) & 0x8000) != 0;
+    bool fg = GetForegroundWindow() == g_hwnd;
+    g_padToggle = false;
+    if (down && !prev && fg) {
+        if (feat::g_menuOpen) feat::g_menuOpen = false;
+        else open_panel(false);
     }
     prev = down;
 }
@@ -260,14 +277,31 @@ static void render(IDXGISwapChain3* sc) {
     if (!queue_ok(q)) return;
     if (g_frames.empty() && !create_frames(sc)) { release_frames(); return; }
     toggle_check();
-    if (!feat::g_menuOpen) return;
+    bool showBtn = !feat::g_menuOpen && feat::g_gameMenu;
+    if (!feat::g_menuOpen && !showBtn) return;
 
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
-    feed_mouse();
-    feed_pad();
+    if (feat::g_menuOpen) {
+        feed_mouse();
+        feed_pad();
+    } else {
+        ImGuiIO& io = ImGui::GetIO();
+        io.MouseDrawCursor = false;
+        POINT cp;
+        if (GetCursorPos(&cp) && ScreenToClient(g_hwnd, &cp)) io.AddMousePosEvent((float)cp.x, (float)cp.y);
+        io.AddMouseButtonEvent(0, (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0);
+    }
     ImGui::NewFrame();
-    ui::draw();
+    if (feat::g_menuOpen) {
+        ui::draw();
+    } else {
+        static bool r3Prev = true;
+        bool r3 = (g_padButtons.load() & XINPUT_GAMEPAD_RIGHT_THUMB) != 0;
+        bool clicked = ui::draw_menu_button();
+        if (clicked || (r3 && !r3Prev)) open_panel(true);
+        r3Prev = r3;
+    }
     ImGui::Render();
 
     UINT idx = sc->GetCurrentBackBufferIndex();
@@ -387,7 +421,9 @@ static DIDataFn di_data_orig(IDirectInputDevice8W* dev) {
 
 static HRESULT STDMETHODCALLTYPE hk_di_state(IDirectInputDevice8W* dev, DWORD cb, LPVOID data) {
     HRESULT hr = di_state_orig(dev)(dev, cb, data);
-    if (feat::g_menuOpen && SUCCEEDED(hr) && data) {
+    if (g_kbBlock && !(GetAsyncKeyState(VK_ESCAPE) & 0x8000)) g_kbBlock = false;
+    bool block = feat::g_menuOpen || (g_kbBlock && di_type(dev) == DI8DEVTYPE_KEYBOARD);
+    if (block && SUCCEEDED(hr) && data) {
         if (di_type(dev) == DI8DEVTYPE_MOUSE && cb >= sizeof(DIMOUSESTATE)) {
             auto* ms = (DIMOUSESTATE*)data;
             g_dx += ms->lX;
@@ -402,7 +438,8 @@ static HRESULT STDMETHODCALLTYPE hk_di_state(IDirectInputDevice8W* dev, DWORD cb
 
 static HRESULT STDMETHODCALLTYPE hk_di_data(IDirectInputDevice8W* dev, DWORD cbObj, LPDIDEVICEOBJECTDATA rg, LPDWORD inout, DWORD fl) {
     HRESULT hr = di_data_orig(dev)(dev, cbObj, rg, inout, fl);
-    if (feat::g_menuOpen && SUCCEEDED(hr) && inout) {
+    bool block = feat::g_menuOpen || (g_kbBlock && di_type(dev) == DI8DEVTYPE_KEYBOARD);
+    if (block && SUCCEEDED(hr) && inout) {
         if (rg && di_type(dev) == DI8DEVTYPE_MOUSE) {
             int btn = g_diBtn;
             for (DWORD i = 0; i < *inout; ++i) {
@@ -436,18 +473,15 @@ static void pad_capture(XINPUT_STATE* st) {
         g_padButtons = 0;
         g_padSticks = 0;
     }
-    bool shoulders = (b & XINPUT_GAMEPAD_LEFT_SHOULDER) && (b & XINPUT_GAMEPAD_RIGHT_SHOULDER);
-    bool chord = shoulders && (b & XINPUT_GAMEPAD_BACK);
-    if (chord && !chordPrev) g_padToggle = true;
-    chordPrev = chord;
-    if (shoulders) st->Gamepad.wButtons &= ~XINPUT_GAMEPAD_BACK;
+    (void)chordPrev;
+    if (g_padBlock && b == 0) g_padBlock = false;
 }
 
 template <int N> static DWORD WINAPI hk_xi(DWORD idx, XINPUT_STATE* st) {
     DWORD r = oXI[N].second(idx, st);
     if (r == ERROR_SUCCESS && st) {
         pad_capture(st);
-        if (feat::g_menuOpen) memset(&st->Gamepad, 0, sizeof(st->Gamepad));
+        if (feat::g_menuOpen || g_padBlock) memset(&st->Gamepad, 0, sizeof(st->Gamepad));
     }
     return r;
 }
@@ -496,7 +530,16 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_MBUTTONUP: case WM_MBUTTONDBLCLK: case WM_XBUTTONDOWN: case WM_XBUTTONUP:
         case WM_MOUSEHWHEEL:
             return 0;
-        case WM_KEYDOWN: case WM_KEYUP: case WM_SYSKEYDOWN: case WM_SYSKEYUP: case WM_CHAR:
+        case WM_KEYDOWN:
+            if (w == VK_ESCAPE) {
+                feat::g_menuOpen = false;
+                if (feat::g_fromGameMenu) return CallWindowProcW(g_origProc, h, m, w, l);
+                g_kbBlock = true;
+                return 0;
+            }
+            if (g_init) ImGui_ImplWin32_WndProcHandler(h, m, w, l);
+            return 0;
+        case WM_KEYUP: case WM_SYSKEYDOWN: case WM_SYSKEYUP: case WM_CHAR:
             if (g_init) ImGui_ImplWin32_WndProcHandler(h, m, w, l);
             return 0;
         case WM_SETCURSOR:

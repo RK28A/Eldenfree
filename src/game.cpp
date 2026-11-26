@@ -1192,4 +1192,60 @@ bool warp_to(uint32_t entity) {
     return true;
 }
 
+
+static std::unordered_map<std::string, uintptr_t> s_singletons;
+static bool s_singletonsScanned = false;
+
+static bool in_section(uintptr_t p, const char* sec) {
+    auto dos = (IMAGE_DOS_HEADER*)g_base;
+    auto nt = (IMAGE_NT_HEADERS64*)(g_base + dos->e_lfanew);
+    auto sh = IMAGE_FIRST_SECTION(nt);
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sh) {
+        char name[9] = {};
+        memcpy(name, sh->Name, 8);
+        if (strcmp(name, sec)) continue;
+        uintptr_t a = g_base + sh->VirtualAddress;
+        if (p >= a && p < a + sh->Misc.VirtualSize) return true;
+    }
+    return false;
+}
+
+uintptr_t singleton(const char* name) {
+    if (!s_singletonsScanned) {
+        s_singletonsScanned = true;
+        static uintptr_t hits[0x4000];
+        size_t n = aob_all("48 8B ?? ?? ?? ?? ?? 48 85 ?? 75 2E 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 8B C8 4C 8D 05 ?? ?? ?? ?? BA ?? ?? 00 00 48 8D 0D ?? ?? ?? ?? E8", hits, 0x4000);
+        for (size_t i = 0; i < n; ++i) {
+            uintptr_t c = hits[i];
+            uintptr_t stat = c + 7 + *(int32_t*)(c + 3);
+            uintptr_t rcls = c + 19 + *(int32_t*)(c + 15);
+            uintptr_t fn = c + 24 + *(int32_t*)(c + 20);
+            const char* path = (const char*)(c + 46 + *(int32_t*)(c + 42));
+            if (!in_section(stat, ".data") || !in_section(rcls, ".data") || !in_section(fn, ".text") || !in_section((uintptr_t)path, ".rdata")) continue;
+            size_t len = strnlen(path, 256);
+            if (len < 14 || len == 256 || strcmp(path + len - 14, "FD4Singleton.h")) continue;
+            const char* nm = ((const char* (*)(uintptr_t))fn)(rcls);
+            if (!nm) continue;
+            const char* simple = strrchr(nm, ':');
+            simple = simple ? simple + 1 : nm;
+            s_singletons.emplace(simple, stat);
+        }
+        elog("Singletons FD4 : %zu trouves", s_singletons.size());
+    }
+    auto it = s_singletons.find(name);
+    return it == s_singletons.end() ? 0 : it->second;
+}
+
+bool menu_ui_states(uint8_t* out, size_t n) {
+    if (!g.menuMan) g.menuMan = singleton("CSMenuMan");
+    uintptr_t mm = ptr(g.menuMan);
+    return mm && read_raw(mm + 0x90, out, n);
+}
+
+int talk_menu_id() {
+    uintptr_t mm = ptr(g.menuMan);
+    uintptr_t pop = mm ? ptr(mm + 0x80) : 0;
+    return pop ? rdv<int32_t>(pop + 0x180, -1) : -1;
+}
+
 }

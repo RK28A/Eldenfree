@@ -62,10 +62,11 @@ void cfg_load() {
     c.torrentInfJump = geti(L"Torrent", L"InfiniteJump", c.torrentInfJump);
     c.torrentAirJump = geti(L"Torrent", L"JumpWhileFalling", c.torrentAirJump);
     c.jumpKey = geti(L"Torrent", L"JumpKey", c.jumpKey);
+    c.pauseUi = gets(L"General", L"PauseMenuUi");
     c.flySpeed = getf(L"Torrent", L"FlySpeed", c.flySpeed);
     c.fastCast = geti(L"Player", L"FastCast", c.fastCast);
     c.castSpeed = getf(L"Player", L"CastSpeed", c.castSpeed);
-    c.castAnims = gets(L"Player", L"CastSpellAnims");
+    c.castAnims = gets(L"Player", L"CastSpellAnimsV2");
     c.castAnimsNo = gets(L"Player", L"CastSpellAnimsAttack");
     c.jumpFlags = gets(L"Torrent", L"DoubleJumpFlags");
     c.graceMenu = geti(L"World", L"GraceMenuButtonsExperimental", c.graceMenu);
@@ -117,10 +118,11 @@ void cfg_save() {
     puti(L"Torrent", L"InfiniteJump", c.torrentInfJump);
     puti(L"Torrent", L"JumpWhileFalling", c.torrentAirJump);
     puti(L"Torrent", L"JumpKey", c.jumpKey, true);
+    puts_(L"General", L"PauseMenuUi", c.pauseUi);
     putf(L"Torrent", L"FlySpeed", c.flySpeed);
     puti(L"Player", L"FastCast", c.fastCast);
     putf(L"Player", L"CastSpeed", c.castSpeed);
-    puts_(L"Player", L"CastSpellAnims", c.castAnims);
+    puts_(L"Player", L"CastSpellAnimsV2", c.castAnims);
     puts_(L"Player", L"CastSpellAnimsAttack", c.castAnimsNo);
     puts_(L"Torrent", L"DoubleJumpFlags", c.jumpFlags);
     puti(L"World", L"GraceMenuButtonsExperimental", c.graceMenu);

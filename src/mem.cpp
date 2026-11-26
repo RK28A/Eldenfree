@@ -85,8 +85,14 @@ static bool parse(const char* p, std::vector<int>& out) {
 }
 
 uintptr_t aob(const char* pattern) {
+    uintptr_t r = 0;
+    return aob_all(pattern, &r, 1) ? r : 0;
+}
+
+size_t aob_all(const char* pattern, uintptr_t* out, size_t max) {
     std::vector<int> pat;
-    if (!parse(pattern, pat) || !g_base) return 0;
+    size_t found = 0;
+    if (!parse(pattern, pat) || !g_base || !max) return 0;
     size_t n = pat.size();
     uintptr_t a = g_base;
     while (a < g_end) {
@@ -107,12 +113,15 @@ uintptr_t aob(const char* pattern) {
                 size_t j = 1;
                 for (; j < n; ++j)
                     if (pat[j] >= 0 && b[i + j] != pat[j]) break;
-                if (j == n) return rb + i;
+                if (j == n) {
+                    out[found++] = rb + i;
+                    if (found >= max) return found;
+                }
             }
         }
         a = re;
     }
-    return 0;
+    return found;
 }
 
 }

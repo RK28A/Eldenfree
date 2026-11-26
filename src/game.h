@@ -16,6 +16,7 @@ struct Addrs {
     uintptr_t ezDispatch = 0;
     uintptr_t luaEventMan = 0;
     uintptr_t luaWarp = 0;
+    uintptr_t menuMan = 0;
 };
 extern Addrs g;
 
@@ -67,6 +68,9 @@ void esd_set_callback(void (*cb)(int));
 int selected_spell();
 uint32_t grace_entity(uint32_t graceFlag);
 bool warp_to(uint32_t bonfireEntity);
+uintptr_t singleton(const char* name);
+bool menu_ui_states(uint8_t* out, size_t n);
+int talk_menu_id();
 void speffects(uintptr_t chr, std::vector<std::pair<int, float>>& out);
 
 struct InvItem { uint32_t handle, id, qty; };

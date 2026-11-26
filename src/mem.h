@@ -27,6 +27,7 @@ inline uintptr_t ptr(uintptr_t a) {
 }
 
 uintptr_t aob(const char* pattern);
+size_t aob_all(const char* pattern, uintptr_t* out, size_t max);
 inline uintptr_t rip(uintptr_t instr, int dispOff, int len) {
     if (!instr) return 0;
     int32_t d = 0;

@@ -23,6 +23,7 @@ struct Config {
     std::string castAnimsNo;
     bool graceMenu = false;
     int jumpKey = 0x46;
+    std::string pauseUi;
     float flySpeed = 20.0f;
 
     int offPlayerIns = 0;

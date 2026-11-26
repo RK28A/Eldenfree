@@ -325,12 +325,6 @@ static void tab_weapons(const feat::Status& st) {
 static void tab_menus(const feat::Status& st) {
     auto& menus = feat::game_menus();
     if (!st.menus) pill("Fonction des menus du jeu introuvable", C_BAD);
-    if (toggle("Renaissance et Renforcer dans le menu de gr\xC3\xA2" "ce (exp\xC3\xA9rimental)", &g_cfg.graceMenu)) save();
-    hint("Recommand\xC3\xA9 : le mod Nexus 5513 (options de gr\xC3\xA2" "ce) dans le dossier mods \xC3\xA0 c\xC3\xB4t\xC3\xA9 de EldenFree.exe.");
-    if (g_cfg.graceMenu) {
-        if (st.esd) pill("Ajout\xC3\xA9s au menu de gr\xC3\xA2" "ce", C_OK);
-        else pill("En attente (charge ta partie)", C_WARN);
-    }
     ImGui::Dummy(ImVec2(0, 4));
     const char* group = nullptr;
     int col = 0;
@@ -432,7 +426,7 @@ static void tab_diag(const feat::Status& st) {
         status_row("Personnage", st.player, st.playerOff >= 0 ? b : "charge ta partie");
         status_row("ItemGib", st.itemGib);
         status_row("Menus du jeu", st.menus);
-        status_row("Menu de gr\xC3\xA2" "ce \xC3\xA9tendu", st.esd);
+        status_row("Bouton menu \xC3\x89" "chap", st.pauseLearned, st.pauseLearned ? "reconnu" : "ouvre le menu \xC3\x89" "chap 2 fois");
         status_row("T\xC3\xA9l\xC3\xA9portation", st.warp);
         status_row("Patch carte en combat", st.pMap);
         status_row("Patch Torrent partout", st.pRide);
@@ -449,6 +443,34 @@ static void tab_diag(const feat::Status& st) {
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4) ImGui::SetScrollHereY(1.f);
     ImGui::EndChild();
     ImGui::PopFont();
+}
+
+bool draw_menu_button() {
+    ImGuiIO& io = ImGui::GetIO();
+    ImVec2 sz(300, 52);
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.075f, io.DisplaySize.y * 0.885f));
+    ImGui::SetNextWindowSize(sz);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+    ImGui::Begin("##efbtn", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove |
+                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    bool clicked = ImGui::InvisibleButton("##open", sz);
+    bool hov = ImGui::IsItemHovered();
+    ImU32 l = ImGui::GetColorU32(ImVec4(0.f, 0.f, 0.f, hov ? 0.55f : 0.35f));
+    ImU32 r = ImGui::GetColorU32(ImVec4(0.f, 0.f, 0.f, 0.f));
+    dl->AddRectFilledMultiColor(p, ImVec2(p.x + sz.x, p.y + sz.y), l, r, r, l);
+    dl->AddLine(ImVec2(p.x, p.y + sz.y - 1), ImVec2(p.x + sz.x * 0.8f, p.y + sz.y - 1), ImGui::GetColorU32(ImVec4(0.6f, 0.52f, 0.36f, 0.45f)));
+    ImGui::PushFont(g_title);
+    dl->AddText(ImVec2(p.x + 14, p.y + (sz.y - ImGui::GetFontSize()) * 0.5f), ImGui::GetColorU32(hov ? C_GOLD_HI : C_TEXT), "EldenFree");
+    ImGui::PopFont();
+    ImGui::PushFont(g_small);
+    dl->AddText(ImVec2(p.x + 170, p.y + (sz.y - ImGui::GetFontSize()) * 0.5f), ImGui::GetColorU32(C_DIM), "R3 / clic");
+    ImGui::PopFont();
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    return clicked;
 }
 
 void draw() {
@@ -474,7 +496,7 @@ void draw() {
     ImGui::PopFont();
     right_pill(st.player ? "En jeu" : st.core ? "En attente de la partie" : "Initialisation", st.player ? C_OK : C_WARN);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8);
-    hint("F10 ou LB + RB + Vue (manette) pour fermer  \xC2\xB7  LB/RB : onglets  \xC2\xB7  A : valider  \xC2\xB7  B : fermer");
+    hint("F10 / \xC3\x89" "chap / B pour fermer  \xC2\xB7  LB/RB : onglets  \xC2\xB7  A : valider");
     ImVec2 lp = ImGui::GetCursorScreenPos();
     dl->AddLine(ImVec2(lp.x, lp.y), ImVec2(lp.x + ImGui::GetContentRegionAvail().x, lp.y), ImGui::GetColorU32(C_GOLD_LO), 1.f);
     ImGui::Dummy(ImVec2(0, 4));
@@ -487,7 +509,10 @@ void draw() {
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) wantTab = (curTab + tabCount - 1) % tabCount;
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) wantTab = (curTab + 1) % tabCount;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) && !ImGui::IsAnyItemActive()) feat::g_menuOpen = false;
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) && !ImGui::IsAnyItemActive()) {
+        feat::g_menuOpen = false;
+        if (!feat::g_fromGameMenu) overlay::block_inputs_until_release();
+    }
     int tabIdx = 0;
     if (ImGui::BeginTabBar("tabs")) {
         auto tab = [&](const char* name, void (*fn)(const feat::Status&)) {

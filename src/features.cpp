@@ -16,6 +16,8 @@ namespace feat {
 
 std::atomic<bool> g_menuOpen{false};
 std::atomic<bool> g_wantWeapons{false};
+std::atomic<bool> g_gameMenu{false};
+std::atomic<bool> g_fromGameMenu{false};
 
 static std::mutex s_m;
 static Status s_st;
@@ -500,21 +502,37 @@ static void cast_save() {
     cfg_save();
 }
 
+static int s_animCur = -1, s_animPrev = -1;
+static double s_animCurT = 0, s_animPrevT = 0;
+
+static bool selected_spell_is_buff() {
+    int spell = game::selected_spell();
+    auto mt = game::param_tables("MAGIC_PARAM_ST");
+    uintptr_t row = (spell > 0 && !mt.empty()) ? game::param_find(mt[0], spell) : 0;
+    return row && (mem::rdv<uint8_t>(row + 0x1E) == 2 || (mem::rdv<uint8_t>(row + 0x31) & 0x0C));
+}
+
 static void tick_cast(uintptr_t pl, Status& st) {
     if (!s_castLoaded) {
         s_castLoaded = true;
         parse_set(g_cfg.castAnims, s_castAnims);
-        parse_set(g_cfg.castAnimsNo, s_castNo);
     }
     st.castLearned = (int)s_castAnims.size();
-    st.castAttack = (int)s_castNo.size();
+    st.castAttack = 0;
     if (!pl) { s_castActive = false; return; }
+    double t = now();
     uintptr_t P = game::pgd();
     uint32_t fp = P ? mem::rdv<uint32_t>(P + g_cfg.offPgdFp) : 0;
     int hp = 0, mhp = 0;
     game::chr_hp(pl, hp, mhp);
     int anim = game::cur_anim(pl);
-    if (g_cfg.fastCast && anim > 0 && s_lastFp && fp < s_lastFp && hp >= s_lastCastHp && !s_castAnims.count(anim) && !s_castNo.count(anim)) {
+    if (anim != s_animCur) {
+        s_animPrev = s_animCur;
+        s_animPrevT = s_animCurT;
+        s_animCur = anim;
+        s_animCurT = t;
+    }
+    if (g_cfg.fastCast && anim > 0 && s_lastFp && fp < s_lastFp && hp >= s_lastCastHp) {
         int drop = (int)(s_lastFp - fp);
         int spell = game::selected_spell();
         auto mt = game::param_tables("MAGIC_PARAM_ST");
@@ -523,16 +541,18 @@ static void tick_cast(uintptr_t pl, Status& st) {
             int mp = mem::rdv<int16_t>(row + 0x10);
             int mpc = mem::rdv<int16_t>(row + 0x5C);
             if (mp > 0 && drop * 2 >= mp && drop <= mp + std::max(mpc, 0) + 2) {
-                bool buff = mem::rdv<uint8_t>(row + 0x1E) == 2 || (mem::rdv<uint8_t>(row + 0x31) & 0x0C);
-                (buff ? s_castAnims : s_castNo).insert(anim);
-                elog("Sort %d (PC %d, perte %d) anim %d : %s", spell, mp, drop, anim, buff ? "buff" : "attaque");
-                cast_save();
+                bool changed = s_castAnims.insert(anim).second;
+                if (s_animPrev > 0 && s_animCurT - s_animPrevT < 1.5) changed |= s_castAnims.insert(s_animPrev).second;
+                if (changed) {
+                    elog("Sort %d : animations %d / %d apprises", spell, s_animPrev, anim);
+                    cast_save();
+                }
             }
         }
     }
     s_lastFp = fp;
     s_lastCastHp = hp;
-    bool want = g_cfg.fastCast && anim > 0 && s_castAnims.count(anim);
+    bool want = g_cfg.fastCast && anim > 0 && s_castAnims.count(anim) && selected_spell_is_buff();
     if (want) {
         game::set_anim_speed(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f));
         s_castActive = true;
@@ -772,6 +792,64 @@ static void tick_fly(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status
     game::chr_set_pos(tor, s_flyPos);
 }
 
+static int s_pauseCount[0x46];
+static std::vector<int> s_pauseIdx;
+static bool s_pauseLoaded = false, s_escPrev = false, s_pendPause = false;
+static double s_pendPauseT = 0;
+static uint8_t s_preUi[0x46];
+
+static void tick_menus(double t, uintptr_t pl, Status& st) {
+    if (!s_pauseLoaded) {
+        s_pauseLoaded = true;
+        std::unordered_set<int> v;
+        parse_set(g_cfg.pauseUi, v);
+        for (int i : v) s_pauseIdx.push_back(i - 1);
+    }
+    uint8_t ui[0x46];
+    bool ok = pl && game::menu_ui_states(ui, sizeof(ui));
+    bool vis = false;
+    if (ok)
+        for (int i : s_pauseIdx)
+            if (i >= 0 && i < 0x46 && (ui[i] & 2)) vis = true;
+    int talk = ok ? game::talk_menu_id() : -1;
+    static int lastTalk = -2;
+    if (talk != lastTalk) {
+        elog("Menu de dialogue : talk id %d", talk);
+        lastTalk = talk;
+    }
+    if (talk > 0) vis = true;
+    g_gameMenu = vis;
+    st.pauseLearned = !s_pauseIdx.empty();
+    if (!ok) return;
+    bool fg = GetForegroundWindow() == overlay::hwnd();
+    bool esc = fg && !g_menuOpen && ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) || (overlay::pad_buttons() & XINPUT_GAMEPAD_START));
+    if (esc && !s_escPrev && !s_pendPause && s_pauseIdx.empty()) {
+        memcpy(s_preUi, ui, sizeof(ui));
+        s_pendPause = true;
+        s_pendPauseT = t;
+    }
+    s_escPrev = esc;
+    if (s_pendPause && t - s_pendPauseT > 0.6) {
+        s_pendPause = false;
+        int newly = 0;
+        for (int i = 0; i < 0x46; ++i)
+            if (!(s_preUi[i] & 2) && (ui[i] & 2)) { s_pauseCount[i]++; ++newly; }
+        if (newly) {
+            std::string r;
+            for (int i = 0; i < 0x46; ++i)
+                if (s_pauseCount[i] >= 2) {
+                    s_pauseIdx.push_back(i);
+                    r += (r.empty() ? "" : ",") + std::to_string(i + 1);
+                }
+            if (!s_pauseIdx.empty()) {
+                g_cfg.pauseUi = r;
+                cfg_save();
+                elog("Menu Echap reconnu : elements UI %s", r.c_str());
+            }
+        }
+    }
+}
+
 static DWORD WINAPI scan_thread(void*) {
     ULONGLONG lastNames = 0;
     for (;;) {
@@ -783,11 +861,7 @@ static DWORD WINAPI scan_thread(void*) {
         if (pl && game::params_ready() && needMsgs && (!lastNames || tk - lastNames > 20000)) {
             lastNames = tk;
             game::names_load();
-            if (g_cfg.graceMenu && !game::esd_ready()) {
-                ++esdTries;
-                game::esd_set_callback(on_grace_pick);
-                game::esd_install();
-            }
+            (void)esdTries;
         }
         if (!pl || !(g_cfg.torrentSpeed || g_cfg.noFallDamage)) { s_torrent = 0; continue; }
         uintptr_t tor = s_torrent.load();
@@ -844,6 +918,7 @@ static DWORD WINAPI tick_thread(void*) {
             st.warp = game::g.luaWarp && game::g.luaEventMan;
             tick_cast(pl, st);
             tick_fly(t, pl, tor, mounted, st);
+            tick_menus(t, pl, st);
             st.names = game::names_ready();
             if (pl && g_menuOpen && g_wantWeapons && t - lastWeps > 1.5) {
                 lastWeps = t;
