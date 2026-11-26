@@ -1,6 +1,6 @@
 # EldenFree
 
-Mod Elden Ring avec un panneau en jeu sur **F10**. `EldenFree.exe` lance le jeu hors ligne et injecte le mod tout seul (plus besoin de Vortex / Mod Engine). La DLL reste utilisable avec Mod Engine 2.
+Mod Elden Ring avec un panneau en jeu (**F10** ou bouton EldenFree dans le menu Échap / de grâce). `EldenFree.exe` lance le jeu hors ligne et injecte le mod tout seul.
 
 | Onglet | Fonction |
 |---|---|
@@ -12,7 +12,7 @@ Mod Elden Ring avec un panneau en jeu sur **F10**. `EldenFree.exe` lance le jeu 
 | Joueur | Aucun dégât de chute · cast rapide · garder ses runes à la mort |
 | Diagnostic | État des signatures mémoire |
 
-Installation : voir `dist/LISEZMOI.txt`. Télécharger le zip prêt à l'emploi : [EldenFree.zip](https://github.com/RK28A/Eldenfree/releases/latest/download/EldenFree.zip) (généré par le workflow `build` à chaque push).
+Télécharger le zip prêt à l'emploi : [EldenFree.zip](https://github.com/RK28A/Eldenfree/releases/latest/download/EldenFree.zip) (généré par le workflow `build` à chaque push).
 
 ## Compiler
 

@@ -1,25 +1,14 @@
 EldenFree - mod Elden Ring
 
-UTILISATION SIMPLE (sans Vortex ni Mod Engine)
 1. Ouvre Steam.
 2. Double-clique sur EldenFree.exe : il trouve le jeu, le lance hors ligne
    (sans Easy Anti-Cheat) et injecte le mod. Si le jeu est deja lance hors
    ligne, il injecte directement.
-3. En jeu : F10 ouvre / ferme le panneau (la souris est liberee).
+3. En jeu : F10, ou le bouton EldenFree dans le menu Echap / de grace
+   (clic ou R3 a la manette). Echap ou B pour fermer.
 
 Reglages (EldenFree.ini) et journal (EldenFree.log) :
   %LOCALAPPDATA%\EldenFree
 
-AVEC MOD ENGINE 2 (optionnel)
-Mets EldenFree.dll dans ModEngine2\mod\EldenFree\ et ajoute-le a external_dlls
-dans config_eldenring.toml (voir config_eldenring.example.toml).
-
 Joue uniquement hors ligne avec le mod. Fais une copie de ta sauvegarde
 (%APPDATA%\EldenRing) avant les deblocages (carte, graces, cloches).
-
-MODS NEXUS (ex. options de grace, mod 5513)
-Copie le contenu du mod dans le dossier mods : EldenFree.exe lancera alors
-le jeu via Mod Engine 2 (inclus dans ModEngine2) avec ces mods + EldenFree.
-
-MANETTE : LB + RB + Vue ouvre/ferme le panneau. LB/RB onglets, A valider, B fermer.
-VOL : sur Torrent, maintiens Saut pour voler vers ou tu regardes, maintiens encore pour arreter.
