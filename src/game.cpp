@@ -814,13 +814,12 @@ template <class F> static void fmg_ids(uintptr_t f, F&& fn) {
 }
 
 void names_load() {
-    if (s_namesReady) return;
     uintptr_t repo = ptr(g.msgRepo);
     if (!repo) return;
     std::vector<uintptr_t> fmgs;
     std::unordered_set<uintptr_t> visited;
     std::vector<std::pair<uintptr_t, int>> stack{{repo, 0}};
-    while (!stack.empty() && visited.size() < 400000) {
+    while (!stack.empty() && visited.size() < 1500000) {
         auto [n, d] = stack.back();
         stack.pop_back();
         if (!visited.insert(n).second) continue;
@@ -834,7 +833,7 @@ void names_load() {
                 if (std::find(fmgs.begin(), fmgs.end(), q) == fmgs.end()) fmgs.push_back(q);
                 continue;
             }
-            if (d < 4) stack.push_back({q, d + 1});
+            if (d < 5) stack.push_back({q, d + 1});
         }
     }
     {
@@ -865,7 +864,7 @@ void names_load() {
         if (nameLike && weaponIds) sel.push_back(f);
     }
     std::lock_guard<std::mutex> lk(s_nm);
-    s_weaponFmgs = sel;
+    if (!sel.empty() || s_weaponFmgs.empty()) s_weaponFmgs = sel;
     elog("FMG: %zu trouvés, %zu noms d'armes", fmgs.size(), sel.size());
     if (!sel.empty()) s_namesReady = true;
 }
@@ -996,6 +995,8 @@ static constexpr int kIdRebirth = 9001, kIdForge = 9002;
 
 static bool has_id(const std::vector<uint32_t>& v, uint32_t id) { return std::find(v.begin(), v.end(), id) != v.end(); }
 
+static int s_evLog = 0;
+
 static int ev_int(void* ext, int i) {
     void** vt = *(void***)ext;
     auto at = (EzArg * (*)(void*, int)) vt[4];
@@ -1027,6 +1028,11 @@ static void hk_event(void* talkEvent, void* ext) {
         void** vt = *(void***)ext;
         int id = ((int (*)(void*))vt[2])(ext);
         int argc = ((int (*)(void*))vt[3])(ext);
+        if ((id == 19 || id == 20 || id == 10 || id == 76) && s_evLog < 80) {
+            ++s_evLog;
+            elog("ESD ev talk=%d id=%d argc=%d a1=%d a2=%d", rdv<int32_t>((uintptr_t)talkEvent + 0x18), id, argc,
+                 argc > 1 ? ev_int(ext, 1) : 0, argc > 2 ? ev_int(ext, 2) : 0);
+        }
         if (id == 20) {
             s_listOwner = talkEvent;
             s_isGrace = s_injected = false;
@@ -1073,10 +1079,7 @@ bool esd_ready() { return s_esdReady; }
 
 bool esd_install() {
     if (s_esdReady) return true;
-    if (!msgs_ready() || !g.ezDispatch) return false;
-    static bool tried = false;
-    if (tried) return false;
-    tried = true;
+    if (!msgs_ready()) return false;
     auto reb = find_msgs({L"Renaissance", L"Rebirth", L"Renacer", L"Rinascita", L"Wiedergeburt"}, false);
     auto forge = find_msgs({L"Renforcer l'armement", L"Renforcer l’armement", L"Strengthen armament", L"Strengthen armaments"}, false);
     if (forge.empty()) forge = find_msgs({L"Renforcer", L"Strengthen"}, true);
@@ -1090,11 +1093,16 @@ bool esd_install() {
     uintptr_t evFn = evVt ? rdv<uintptr_t>(evVt + 8) : g.ezDispatch;
     elog("ESD: renaissance=%u forge=%u niveau=%zu quitter=%zu envVt=%p evVt=%p ev=%p dispatch=%p", s_msgRebirth, s_msgForge,
          s_msgLevelUp.size(), s_msgQuit.size(), (void*)envVt, (void*)evVt, (void*)evFn, (void*)g.ezDispatch);
-    if (!envFn || !evFn || !(s_msgRebirth || s_msgForge) || s_msgLevelUp.empty()) return false;
-    MH_Initialize();
-    if (MH_CreateHook((void*)evFn, (void*)hk_event, (void**)&s_oEvent) != MH_OK) return false;
-    if (MH_CreateHook((void*)envFn, (void*)hk_env, (void**)&s_oEnv) != MH_OK) return false;
-    if (MH_EnableHook((void*)evFn) != MH_OK || MH_EnableHook((void*)envFn) != MH_OK) return false;
+    static bool hooked = false;
+    if (!hooked && envFn && evFn) {
+        MH_Initialize();
+        if (MH_CreateHook((void*)evFn, (void*)hk_event, (void**)&s_oEvent) == MH_OK &&
+            MH_CreateHook((void*)envFn, (void*)hk_env, (void**)&s_oEnv) == MH_OK &&
+            MH_EnableHook((void*)evFn) == MH_OK && MH_EnableHook((void*)envFn) == MH_OK)
+            hooked = true;
+        elog("ESD: hooks %s", hooked ? "ok" : "ECHEC");
+    }
+    if (!hooked || !(s_msgRebirth || s_msgForge) || s_msgLevelUp.empty()) return false;
     s_esdReady = true;
     elog("ESD: menu de grace etendu");
     return true;

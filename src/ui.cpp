@@ -228,7 +228,7 @@ static void tab_boss(const feat::Status& st) {
     if (!g_cfg.greyollRespawn) ImGui::EndDisabled();
     ImGui::PopItemWidth();
     if (primary("Faire r\xC3\xA9" "appara\xC3\xAEtre maintenant", st.flags)) feat::post(feat::Act::ResetGreyoll);
-    hint("Remet les 3 flags de Greyoll \xC3\xA0 z\xC3\xA9ro puis te t\xC3\xA9l\xC3\xA9porte \xC3\xA0 la gr\xC3\xA2" "ce Butte des dragons ouest pour recharger la zone : le dragon revient couch\xC3\xA9, avec sa barre de vie et son butin.");
+    hint("Remet les 3 flags de Greyoll \xC3\xA0 z\xC3\xA9ro puis te t\xC3\xA9l\xC3\xA9porte \xC3\xA0 la gr\xC3\xA2" "ce du Fort Faroth pour recharger la zone : le dragon revient couch\xC3\xA9, avec sa barre de vie et son butin.");
     card_end();
 }
 
@@ -372,7 +372,15 @@ static void tab_torrent(const feat::Status& st) {
     card_end();
 
     card_begin("torjump", "Saut infini", "Premier saut normal, puis double saut (avec l'effet) \xC3\xA0 chaque nouvelle pression en l'air, sans limite.");
-    patch_toggle("Saut infini sur Torrent", &g_cfg.torrentInfJump, st.pJump);
+    if (toggle("Saut infini sur Torrent", &g_cfg.torrentInfJump)) save();
+    if (st.jumpLearned) {
+        char jb[64];
+        snprintf(jb, sizeof(jb), "Calibr\xC3\xA9 (%d flag%s)", st.jumpLearned, st.jumpLearned > 1 ? "s" : "");
+        pill(jb, C_OK);
+    } else {
+        hint("Calibrage : fais 2 s\xC3\xA9ries de double saut normales (saut puis double saut, atterris entre les deux). Le mod rep\xC3\xA8re le flag \xC2\xAB double saut d\xC3\xA9j\xC3\xA0 fait \xC2\xBB et le remet ensuite \xC3\xA0 z\xC3\xA9ro en l'air.");
+    }
+    if (ImGui::Button("Refaire le calibrage")) feat::post(feat::Act::ResetJump);
     if (g_cfg.torrentInfJump) patch_toggle("Sauter aussi en chute libre (exp\xC3\xA9rimental)", &g_cfg.torrentAirJump, st.pAir);
     card_end();
 
@@ -385,7 +393,7 @@ static void tab_player(const feat::Status& st) {
     hint("Le minuteur de chute du jeu est remis \xC3\xA0 z\xC3\xA9ro en continu, le sol est trait\xC3\xA9 comme sans d\xC3\xA9g\xC3\xA2t de chute, et le personnage (et Torrent) est intouchable pendant la chute et l'atterrissage.");
     card_end();
 
-    card_begin("cast", "Cast rapide des buffs", "Acc\xC3\xA9l\xC3\xA8re uniquement les buffs (sorts, incantations et cendres de guerre qui te donnent un effet). Les attaques gardent leur vitesse normale.");
+    card_begin("cast", "Cast rapide des buffs", "Acc\xC3\xA9l\xC3\xA8re uniquement les sorts et incantations de buff. Les sorts d'attaque, les armes et les cendres de guerre gardent leur vitesse normale.");
     char cb[64];
     snprintf(cb, sizeof(cb), "%d buffs / %d attaques", st.castLearned, st.castAttack);
     right_pill(st.casting ? "Cast en cours" : cb, st.casting ? C_WARN : C_DIM);
@@ -394,7 +402,7 @@ static void tab_player(const feat::Status& st) {
     ImGui::SliderFloat("##cs", &g_cfg.castSpeed, 2.f, 10.f, "Vitesse du cast  x%.1f");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     ImGui::PopItemWidth();
-    hint("Au premier lancement, le mod regarde si un effet durable appara\xC3\xAEt sur toi : si oui c'est un buff (rapide les fois suivantes), sinon c'est une attaque (jamais acc\xC3\xA9l\xC3\xA9r\xC3\xA9" "e).");
+    hint("Le sort s\xC3\xA9lectionn\xC3\xA9 est lu dans les donn\xC3\xA9" "es du jeu (type d'effet). Chaque sort de buff est rapide d\xC3\xA8s son 2e lancement.");
     if (ImGui::Button("Oublier les sorts appris")) feat::post(feat::Act::ResetCast);
     card_end();
 

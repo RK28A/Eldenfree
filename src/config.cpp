@@ -61,8 +61,9 @@ void cfg_load() {
     c.torrentAirJump = geti(L"Torrent", L"JumpWhileFalling", c.torrentAirJump);
     c.fastCast = geti(L"Player", L"FastCast", c.fastCast);
     c.castSpeed = getf(L"Player", L"CastSpeed", c.castSpeed);
-    c.castAnims = gets(L"Player", L"CastAnims");
-    c.castAnimsNo = gets(L"Player", L"CastAnimsAttack");
+    c.castAnims = gets(L"Player", L"CastSpellAnims");
+    c.castAnimsNo = gets(L"Player", L"CastSpellAnimsAttack");
+    c.jumpFlags = gets(L"Torrent", L"DoubleJumpFlags");
     c.graceMenu = geti(L"World", L"GraceMenuButtons", c.graceMenu);
     c.offTimeActMod = geti(L"Offsets", L"TimeActModule", c.offTimeActMod);
     c.offPgdFp = geti(L"Offsets", L"PgdFp", c.offPgdFp);
@@ -113,8 +114,9 @@ void cfg_save() {
     puti(L"Torrent", L"JumpWhileFalling", c.torrentAirJump);
     puti(L"Player", L"FastCast", c.fastCast);
     putf(L"Player", L"CastSpeed", c.castSpeed);
-    puts_(L"Player", L"CastAnims", c.castAnims);
-    puts_(L"Player", L"CastAnimsAttack", c.castAnimsNo);
+    puts_(L"Player", L"CastSpellAnims", c.castAnims);
+    puts_(L"Player", L"CastSpellAnimsAttack", c.castAnimsNo);
+    puts_(L"Torrent", L"DoubleJumpFlags", c.jumpFlags);
     puti(L"World", L"GraceMenuButtons", c.graceMenu);
     puti(L"Offsets", L"TimeActModule", c.offTimeActMod, true);
     puti(L"Offsets", L"PgdFp", c.offPgdFp, true);
