@@ -37,7 +37,7 @@ add_library(EldenFree SHARED
 )
 
 target_include_directories(EldenFree PRIVATE src ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${minhook_SOURCE_DIR}/include)
-target_compile_definitions(EldenFree PRIVATE WIDL_EXPLICIT_AGGREGATE_RETURNS WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE DIRECTINPUT_VERSION=0x0800 IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
+target_compile_definitions(EldenFree PRIVATE WIDL_EXPLICIT_AGGREGATE_RETURNS WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE DIRECTINPUT_VERSION=0x0800 IMGUI_DISABLE_OBSOLETE_FUNCTIONS IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
 target_compile_options(EldenFree PRIVATE -O2 -Wno-unknown-pragmas)
 target_link_options(EldenFree PRIVATE -static -static-libgcc -static-libstdc++ -s)
 target_link_libraries(EldenFree PRIVATE d3d12 dxgi d3dcompiler_47 dinput8 dxguid dwmapi user32 kernel32)

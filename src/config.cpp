@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstdarg>
 #include <mutex>
+#include <deque>
+#include <string>
 
 Config g_cfg;
 std::wstring g_dir;
@@ -148,18 +150,29 @@ void cfg_save() {
     puti(L"Offsets", L"ItemGibDelta", c.itemGibDelta, true);
 }
 
+static std::mutex s_logm;
+static std::deque<std::string> s_tail;
+
+std::vector<std::string> log_tail() {
+    std::lock_guard<std::mutex> lk(s_logm);
+    return std::vector<std::string>(s_tail.begin(), s_tail.end());
+}
+
 void elog(const char* fmt, ...) {
-    static std::mutex m;
-    std::lock_guard<std::mutex> lk(m);
-    FILE* f = _wfopen((g_dir + L"EldenFree.log").c_str(), L"a");
-    if (!f) return;
+    std::lock_guard<std::mutex> lk(s_logm);
+    char line[1024];
     SYSTEMTIME st;
     GetLocalTime(&st);
-    fprintf(f, "[%02d:%02d:%02d] ", st.wHour, st.wMinute, st.wSecond);
+    int n = snprintf(line, sizeof(line), "[%02d:%02d:%02d] ", st.wHour, st.wMinute, st.wSecond);
     va_list ap;
     va_start(ap, fmt);
-    vfprintf(f, fmt, ap);
+    vsnprintf(line + n, sizeof(line) - n, fmt, ap);
     va_end(ap);
+    s_tail.push_back(line);
+    while (s_tail.size() > 60) s_tail.pop_front();
+    FILE* f = _wfopen((g_dir + L"EldenFree.log").c_str(), L"a");
+    if (!f) return;
+    fputs(line, f);
     fputc('\n', f);
     fclose(f);
 }

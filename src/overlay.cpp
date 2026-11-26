@@ -64,6 +64,11 @@ static std::mutex g_rm;
 static thread_local bool tl_in = false;
 
 static std::atomic<long> g_dx{0}, g_dy{0}, g_wheel{0};
+static std::atomic<uint32_t> g_padButtons{0};
+static std::atomic<uint32_t> g_padSticks{0};
+static std::atomic<uint32_t> g_padTrig{0};
+static std::atomic<bool> g_padToggle{false};
+static std::atomic<bool> g_padSeen{false};
 static std::atomic<int> g_rawBtn{0}, g_diBtn{0};
 static POINT g_lastSys{-99999, -99999};
 static ImVec2 g_vpos{0, 0};
@@ -137,7 +142,7 @@ static bool init(IDXGISwapChain3* sc) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
-    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_NavEnableGamepad | ImGuiConfigFlags_NavEnableKeyboard;
     ui::setup();
     ImGui_ImplWin32_Init(g_hwnd);
     ImGui_ImplDX12_Init(g_dev, (int)d.BufferCount, d.BufferDesc.Format, g_srvHeap,
@@ -152,7 +157,8 @@ static void toggle_check() {
     static bool prev = false;
     bool down = (GetAsyncKeyState(g_cfg.toggleKey) & 0x8000) != 0;
     bool fg = GetForegroundWindow() == g_hwnd;
-    if (down && !prev && fg) {
+    bool pad = g_padToggle.exchange(false);
+    if ((down && !prev && fg) || pad) {
         bool open = !feat::g_menuOpen;
         feat::g_menuOpen = open;
         if (open) {
@@ -199,6 +205,32 @@ static void feed_mouse() {
     if (wh) io.AddMouseWheelEvent(0, (float)wh / WHEEL_DELTA);
 }
 
+static void feed_pad() {
+    ImGuiIO& io = ImGui::GetIO();
+    if (!g_padSeen) return;
+    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    uint32_t b = g_padButtons.load();
+    uint32_t st = g_padSticks.load();
+    uint32_t tr = g_padTrig.load();
+    struct M { ImGuiKey k; uint32_t bit; };
+    static const M map[] = {
+        {ImGuiKey_GamepadFaceDown, XINPUT_GAMEPAD_A}, {ImGuiKey_GamepadFaceRight, XINPUT_GAMEPAD_B},
+        {ImGuiKey_GamepadFaceLeft, XINPUT_GAMEPAD_X}, {ImGuiKey_GamepadFaceUp, XINPUT_GAMEPAD_Y},
+        {ImGuiKey_GamepadDpadLeft, XINPUT_GAMEPAD_DPAD_LEFT}, {ImGuiKey_GamepadDpadRight, XINPUT_GAMEPAD_DPAD_RIGHT},
+        {ImGuiKey_GamepadDpadUp, XINPUT_GAMEPAD_DPAD_UP}, {ImGuiKey_GamepadDpadDown, XINPUT_GAMEPAD_DPAD_DOWN},
+        {ImGuiKey_GamepadL1, XINPUT_GAMEPAD_LEFT_SHOULDER}, {ImGuiKey_GamepadR1, XINPUT_GAMEPAD_RIGHT_SHOULDER},
+        {ImGuiKey_GamepadStart, XINPUT_GAMEPAD_START}, {ImGuiKey_GamepadBack, XINPUT_GAMEPAD_BACK}};
+    for (auto& m : map) io.AddKeyEvent(m.k, (b & m.bit) != 0);
+    float lx = (int16_t)(st & 0xFFFF) / 32767.f, ly = (int16_t)(st >> 16) / 32767.f;
+    auto an = [&](ImGuiKey k, float v) { io.AddKeyAnalogEvent(k, v > 0.3f, v > 0.3f ? (v - 0.3f) / 0.7f : 0.f); };
+    an(ImGuiKey_GamepadLStickLeft, -lx);
+    an(ImGuiKey_GamepadLStickRight, lx);
+    an(ImGuiKey_GamepadLStickUp, ly);
+    an(ImGuiKey_GamepadLStickDown, -ly);
+    an(ImGuiKey_GamepadL2, (tr & 0xFF) / 255.f);
+    an(ImGuiKey_GamepadR2, ((tr >> 8) & 0xFF) / 255.f);
+}
+
 static bool queue_ok(ID3D12CommandQueue* q) {
     static ID3D12CommandQueue* verified = nullptr;
     if (q == verified) return true;
@@ -226,6 +258,7 @@ static void render(IDXGISwapChain3* sc) {
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
     feed_mouse();
+    feed_pad();
     ImGui::NewFrame();
     ui::draw();
     ImGui::Render();
@@ -383,9 +416,32 @@ static HRESULT STDMETHODCALLTYPE hk_di_data(IDirectInputDevice8W* dev, DWORD cbO
     return hr;
 }
 
+static void pad_capture(XINPUT_STATE* st) {
+    static bool chordPrev = false;
+    WORD b = st->Gamepad.wButtons;
+    bool any = b || st->Gamepad.sThumbLX > 8000 || st->Gamepad.sThumbLX < -8000 || st->Gamepad.sThumbLY > 8000 || st->Gamepad.sThumbLY < -8000;
+    if (any || !g_padSeen) {
+        g_padButtons = b;
+        g_padSticks = ((uint32_t)(uint16_t)st->Gamepad.sThumbLX) | ((uint32_t)(uint16_t)st->Gamepad.sThumbLY << 16);
+        g_padTrig = st->Gamepad.bLeftTrigger | (st->Gamepad.bRightTrigger << 8);
+        if (any) g_padSeen = true;
+    } else {
+        g_padButtons = 0;
+        g_padSticks = 0;
+    }
+    bool shoulders = (b & XINPUT_GAMEPAD_LEFT_SHOULDER) && (b & XINPUT_GAMEPAD_RIGHT_SHOULDER);
+    bool chord = shoulders && (b & XINPUT_GAMEPAD_BACK);
+    if (chord && !chordPrev) g_padToggle = true;
+    chordPrev = chord;
+    if (shoulders) st->Gamepad.wButtons &= ~XINPUT_GAMEPAD_BACK;
+}
+
 template <int N> static DWORD WINAPI hk_xi(DWORD idx, XINPUT_STATE* st) {
     DWORD r = oXI[N].second(idx, st);
-    if (feat::g_menuOpen && r == ERROR_SUCCESS && st) memset(&st->Gamepad, 0, sizeof(st->Gamepad));
+    if (r == ERROR_SUCCESS && st) {
+        pad_capture(st);
+        if (feat::g_menuOpen) memset(&st->Gamepad, 0, sizeof(st->Gamepad));
+    }
     return r;
 }
 

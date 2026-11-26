@@ -59,3 +59,5 @@ extern std::wstring g_dir;
 void cfg_load();
 void cfg_save();
 void elog(const char* fmt, ...);
+#include <vector>
+std::vector<std::string> log_tail();

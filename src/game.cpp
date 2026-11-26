@@ -914,6 +914,29 @@ bool msgs_ready() {
     return !s_allFmgs.empty();
 }
 
+static uintptr_t s_lastHitFmg = 0;
+
+static uint32_t fmg_custom_text(uintptr_t f, const std::wstring& text, uint32_t avoid) {
+    int32_t groups = rdv<int32_t>(f + 0xC);
+    int64_t soff = rdv<int64_t>(f + 0x18);
+    for (int i = 0; i < groups; ++i) {
+        int32_t gr[4];
+        if (!read_raw(f + 0x28 + (uintptr_t)i * 16, gr, 16)) return 0;
+        for (int32_t id = gr[1]; id <= gr[2] && id - gr[1] < 100000; ++id) {
+            uintptr_t slot = f + soff + (uintptr_t)(gr[0] + (id - gr[1])) * 8;
+            if (rdv<int64_t>(slot, 1) != 0 || (uint32_t)id == avoid) continue;
+            size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+            void* mem = VirtualAlloc(nullptr, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+            if (!mem) return 0;
+            memcpy(mem, text.c_str(), bytes);
+            int64_t rel = (int64_t)((uintptr_t)mem - f);
+            if (!wr(slot, rel)) return 0;
+            return (uint32_t)id;
+        }
+    }
+    return 0;
+}
+
 std::vector<uint32_t> find_msgs(const std::vector<std::wstring>& texts, bool prefix) {
     std::vector<uintptr_t> fmgs;
     {
@@ -930,6 +953,7 @@ std::vector<uint32_t> find_msgs(const std::vector<std::wstring>& texts, bool pre
             s = lower(s);
             for (auto& w : want)
                 if (prefix ? s.rfind(w, 0) == 0 : s == w) {
+                    if (out.empty()) s_lastHitFmg = f;
                     if (std::find(out.begin(), out.end(), id) == out.end()) out.push_back(id);
                     break;
                 }
@@ -1007,6 +1031,7 @@ static int ev_int(void* ext, int i) {
 
 static void inject_entries(void* talkEvent) {
     if (s_injected) return;
+    elog("ESD: ajout des boutons (quitter=%d, args=%d)", s_quitIdx, s_argc);
     s_injected = true;
     s_armed = true;
     tl_inject = true;
@@ -1046,7 +1071,10 @@ static void hk_event(void* talkEvent, void* ext) {
             uint32_t msg = (uint32_t)ev_int(ext, 2);
             s_argc = argc;
             if (argc >= 4) s_arg3 = ev_int(ext, 3);
-            if (has_id(s_msgLevelUp, msg)) s_isGrace = true;
+            if (has_id(s_msgLevelUp, msg) && !s_isGrace) {
+                s_isGrace = true;
+                elog("ESD: menu de grace detecte (talk %d)", rdv<int32_t>((uintptr_t)talkEvent + 0x18));
+            }
             if (has_id(s_msgQuit, msg)) {
                 s_quitIdx = idx;
                 if (s_isGrace) inject_entries(talkEvent);
@@ -1102,7 +1130,10 @@ bool esd_install() {
             hooked = true;
         elog("ESD: hooks %s", hooked ? "ok" : "ECHEC");
     }
-    if (!hooked || !(s_msgRebirth || s_msgForge) || s_msgLevelUp.empty()) return false;
+    if (!hooked || !(s_msgRebirth || s_msgForge) || s_msgLevelUp.empty()) {
+        elog("ESD: pas pret (hooks %d, renaissance %u, forge %u, niveau %zu)", (int)hooked, s_msgRebirth, s_msgForge, s_msgLevelUp.size());
+        return false;
+    }
     s_esdReady = true;
     elog("ESD: menu de grace etendu");
     return true;

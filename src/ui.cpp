@@ -173,9 +173,11 @@ static bool toggle(const char* label, bool* v) {
     ImVec2 p = ImGui::GetCursorScreenPos();
     float h = ImGui::GetFrameHeight() * 0.78f, w = h * 1.85f;
     float y = p.y + (ImGui::GetFrameHeight() - h) * 0.5f;
-    ImGui::InvisibleButton(label, ImVec2(w + 12 + ImGui::CalcTextSize(label, nullptr, true).x, ImGui::GetFrameHeight()));
     bool changed = false;
-    if (ImGui::IsItemClicked()) { *v = !*v; changed = true; }
+    if (ImGui::InvisibleButton(label, ImVec2(w + 12 + ImGui::CalcTextSize(label, nullptr, true).x, ImGui::GetFrameHeight()))) {
+        *v = !*v;
+        changed = true;
+    }
     ImGuiStorage* st = ImGui::GetStateStorage();
     ImGuiID id = ImGui::GetItemID();
     float t = st->GetFloat(id, *v ? 1.f : 0.f);
@@ -183,7 +185,7 @@ static bool toggle(const char* label, bool* v) {
     st->SetFloat(id, t);
     ImVec4 off = ImVec4(0.20f, 0.18f, 0.15f, 1.f);
     ImVec4 bg = ImLerp(off, C_GOLD_LO, t);
-    if (ImGui::IsItemHovered()) bg = ImLerp(bg, C_GOLD, 0.25f);
+    if (ImGui::IsItemHovered() || ImGui::IsItemFocused()) bg = ImLerp(bg, C_GOLD, 0.25f);
     dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + w, y + h), ImGui::GetColorU32(bg), h * 0.5f);
     float r = h * 0.5f - 3;
     dl->AddCircleFilled(ImVec2(p.x + h * 0.5f + t * (w - h), y + h * 0.5f), r, ImGui::GetColorU32(ImLerp(C_DIM, C_GOLD_HI, t)));
@@ -442,7 +444,13 @@ static void tab_diag(const feat::Status& st) {
         status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "appelle Torrent pour le d\xC3\xA9tecter");
         ImGui::EndTable();
     }
-    hint("Journal d\xC3\xA9taill\xC3\xA9 : EldenFree.log \xC3\xA0 c\xC3\xB4t\xC3\xA9 de la DLL. Les offsets sont modifiables dans EldenFree.ini.");
+    hint("Journal (EldenFree.log dans %LOCALAPPDATA%\\EldenFree) :");
+    ImGui::PushFont(g_small);
+    ImGui::BeginChild("logtail", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    for (auto& l : log_tail()) ImGui::TextWrapped("%s", l.c_str());
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4) ImGui::SetScrollHereY(1.f);
+    ImGui::EndChild();
+    ImGui::PopFont();
 }
 
 void draw() {
@@ -468,16 +476,27 @@ void draw() {
     ImGui::PopFont();
     right_pill(st.player ? "En jeu" : st.core ? "En attente de la partie" : "Initialisation", st.player ? C_OK : C_WARN);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8);
-    hint("F10 pour fermer  \xC2\xB7  la souris est lib\xC3\xA9r\xC3\xA9" "e tant que le panneau est ouvert");
+    hint("F10 ou LB + RB + Vue (manette) pour fermer  \xC2\xB7  LB/RB : onglets  \xC2\xB7  A : valider  \xC2\xB7  B : fermer");
     ImVec2 lp = ImGui::GetCursorScreenPos();
     dl->AddLine(ImVec2(lp.x, lp.y), ImVec2(lp.x + ImGui::GetContentRegionAvail().x, lp.y), ImGui::GetColorU32(C_GOLD_LO), 1.f);
     ImGui::Dummy(ImVec2(0, 4));
 
     float footer = 34;
     ImGui::BeginChild("body", ImVec2(0, -footer), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+    static int curTab = 0, wantTab = -1;
+    const int tabCount = 7;
+    if (!ImGui::IsKeyDown(ImGuiKey_GamepadBack)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) wantTab = (curTab + tabCount - 1) % tabCount;
+        if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) wantTab = (curTab + 1) % tabCount;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) && !ImGui::IsAnyItemActive()) feat::g_menuOpen = false;
+    int tabIdx = 0;
     if (ImGui::BeginTabBar("tabs")) {
         auto tab = [&](const char* name, void (*fn)(const feat::Status&)) {
-            if (ImGui::BeginTabItem(name)) {
+            int me = tabIdx++;
+            ImGuiTabItemFlags fl = (wantTab == me) ? ImGuiTabItemFlags_SetSelected : 0;
+            if (ImGui::BeginTabItem(name, nullptr, fl)) {
+                curTab = me;
                 ImGui::Dummy(ImVec2(0, 4));
                 ImGui::BeginChild("scroll", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
                 fn(st);
@@ -493,6 +512,7 @@ void draw() {
         tab("Joueur", tab_player);
         tab("Diagnostic", tab_diag);
         ImGui::EndTabBar();
+        wantTab = -1;
     }
     ImGui::EndChild();
 
