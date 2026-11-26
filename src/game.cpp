@@ -51,11 +51,7 @@ bool resolve() {
     }
     if (!g.itemGib) {
         uintptr_t a = aob("8B 02 83 F8 0A");
-        if (a) {
-            uintptr_t fn = fn_start_check(a + g_cfg.itemGibDelta);
-            for (int k = 1; !fn && k < 0x300; ++k) fn = fn_start_check(a - k);
-            g.itemGib = fn;
-        }
+        if (a) g.itemGib = a + g_cfg.itemGibDelta;
         elog("AOB %-14s %s -> %p", "ItemGib", g.itemGib ? "ok" : "INTROUVABLE", (void*)g.itemGib);
     }
     return g.gameDataMan && g.worldChrMan && g.eventFlagMan;
@@ -401,6 +397,7 @@ bool set_anim_speed(uintptr_t chr, float v) {
 }
 
 bool give_item(uint32_t id, int qty) {
+    if (!g.mapItemMan) g.mapItemMan = singleton("MapItemMan");
     if (!g.itemGib || !g.mapItemMan) return false;
     uintptr_t mim = ptr(g.mapItemMan);
     if (!mim) return false;
@@ -778,12 +775,17 @@ static bool fmg_header(uintptr_t p) {
     uint32_t size = h[1], groups = h[3], strings = h[4];
     uint64_t soff = (uint64_t)h[6] | ((uint64_t)h[7] << 32);
     if (!groups || groups > 100000 || strings > 400000 || size > 0x4000000) return false;
-    return soff >= 0x28 && soff < size;
+    return (soff >= 0x28 && soff < size) || (soff > p && soff < p + size);
+}
+
+static uintptr_t fmg_offsets(uintptr_t f) {
+    uint64_t soff = rdv<uint64_t>(f + 0x18);
+    return soff > f ? (uintptr_t)soff : f + (uintptr_t)soff;
 }
 
 static bool fmg_get(uintptr_t f, uint32_t id, std::wstring& out) {
     int32_t groups = rdv<int32_t>(f + 0xC);
-    int64_t soff = rdv<int64_t>(f + 0x18);
+    uintptr_t offs = fmg_offsets(f);
     int lo = 0, hi = groups - 1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
@@ -792,7 +794,7 @@ static bool fmg_get(uintptr_t f, uint32_t id, std::wstring& out) {
         if ((int32_t)id < gr[1]) hi = mid - 1;
         else if ((int32_t)id > gr[2]) lo = mid + 1;
         else {
-            int64_t so = rdv<int64_t>(f + soff + (uintptr_t)(gr[0] + ((int32_t)id - gr[1])) * 8);
+            int64_t so = rdv<int64_t>(offs + (uintptr_t)(gr[0] + ((int32_t)id - gr[1])) * 8);
             if (so <= 0) return false;
             wchar_t buf[96] = {};
             if (!read_raw(f + so, buf, sizeof(buf)) && !read_raw(f + so, buf, 32)) return false;
@@ -816,6 +818,26 @@ template <class F> static void fmg_ids(uintptr_t f, F&& fn) {
 void names_load() {
     uintptr_t repo = ptr(g.msgRepo);
     if (!repo) return;
+    {
+        uintptr_t table = ptr(repo + 8);
+        std::vector<uintptr_t> direct;
+        if (table)
+            for (int idx : {11, 115, 310, 410}) {
+                uintptr_t f = ptr(table + (uintptr_t)idx * 8);
+                if (f && fmg_header(f)) direct.push_back(f);
+            }
+        std::wstring test;
+        bool ok = false;
+        for (uintptr_t f : direct)
+            if (fmg_get(f, 1000000, test)) ok = true;
+        elog("Noms d'armes : %zu FMG par index (dague=%s)", direct.size(), ok ? "ok" : "non");
+        if (ok) {
+            std::lock_guard<std::mutex> lk(s_nm);
+            s_weaponFmgs = direct;
+            s_namesReady = true;
+            s_names.clear();
+        }
+    }
     std::vector<uintptr_t> fmgs;
     std::unordered_set<uintptr_t> visited;
     std::vector<std::pair<uintptr_t, int>> stack{{repo, 0}};
@@ -918,12 +940,12 @@ static uintptr_t s_lastHitFmg = 0;
 
 static uint32_t fmg_custom_text(uintptr_t f, const std::wstring& text, uint32_t avoid) {
     int32_t groups = rdv<int32_t>(f + 0xC);
-    int64_t soff = rdv<int64_t>(f + 0x18);
+    uintptr_t offs = fmg_offsets(f);
     for (int i = 0; i < groups; ++i) {
         int32_t gr[4];
         if (!read_raw(f + 0x28 + (uintptr_t)i * 16, gr, 16)) return 0;
         for (int32_t id = gr[1]; id <= gr[2] && id - gr[1] < 100000; ++id) {
-            uintptr_t slot = f + soff + (uintptr_t)(gr[0] + (id - gr[1])) * 8;
+            uintptr_t slot = offs + (uintptr_t)(gr[0] + (id - gr[1])) * 8;
             if (rdv<int64_t>(slot, 1) != 0 || (uint32_t)id == avoid) continue;
             size_t bytes = (text.size() + 1) * sizeof(wchar_t);
             void* mem = VirtualAlloc(nullptr, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);

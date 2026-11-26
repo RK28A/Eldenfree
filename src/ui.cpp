@@ -127,14 +127,26 @@ static void pill(const char* text, const ImVec4& col) {
     ImGui::PopFont();
 }
 
-static void right_pill(const char* text, const ImVec4& col) {
+static float s_cardTitleY = 0;
+
+static void inline_right_pill(const char* text, const ImVec4& col) {
     ImGui::PushFont(g_small);
     float w = ImGui::CalcTextSize(text).x + 26;
     ImGui::PopFont();
     ImGui::SameLine();
-    float x = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - w;
-    ImGui::SetCursorPosX(x);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - w);
     pill(text, col);
+}
+
+static void right_pill(const char* text, const ImVec4& col) {
+    ImGui::PushFont(g_small);
+    float w = ImGui::CalcTextSize(text).x + 26;
+    ImGui::PopFont();
+    ImVec2 back = ImGui::GetCursorPos();
+    float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+    ImGui::SetCursorPos(ImVec2(right - w, s_cardTitleY));
+    pill(text, col);
+    ImGui::SetCursorPos(back);
 }
 
 static void hint(const char* text) {
@@ -149,12 +161,19 @@ static bool card_begin(const char* id, const char* title, const char* sub = null
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 14));
     bool open = ImGui::BeginChild(id, ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_NavFlattened);
     ImGui::PopStyleVar();
+    s_cardTitleY = ImGui::GetCursorPosY();
     ImGui::PushStyleColor(ImGuiCol_Text, C_GOLD_HI);
     ImGui::TextUnformatted(title);
     ImGui::PopStyleColor();
     if (sub) {
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 6);
-        hint(sub);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 190.f);
+        ImGui::PushFont(g_small);
+        ImGui::PushStyleColor(ImGuiCol_Text, C_DIM);
+        ImGui::TextWrapped("%s", sub);
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        ImGui::PopTextWrapPos();
     }
     return open;
 }
@@ -516,7 +535,7 @@ void draw() {
     ImGui::TextUnformatted("EldenFree");
     ImGui::PopStyleColor();
     ImGui::PopFont();
-    right_pill(st.player ? "En jeu" : st.core ? "En attente de la partie" : "Initialisation", st.player ? C_OK : C_WARN);
+    inline_right_pill(st.player ? "En jeu" : st.core ? "En attente de la partie" : "Initialisation", st.player ? C_OK : C_WARN);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8);
     hint("F10 ou maintenir Menu (manette) pour ouvrir/fermer  \xC2\xB7  LB/RB : onglets  \xC2\xB7  A : valider  \xC2\xB7  B : fermer");
     ImVec2 lp = ImGui::GetCursorScreenPos();

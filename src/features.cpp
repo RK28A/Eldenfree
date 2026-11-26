@@ -947,6 +947,7 @@ static DWORD WINAPI tick_thread(void*) {
             }
             st.params = game::params_ready();
             st.paramCount = game::params_count();
+            if (!game::g.mapItemMan) game::g.mapItemMan = game::singleton("MapItemMan");
             st.itemGib = game::g.itemGib && game::g.mapItemMan;
             st.menus = game::ezstate_ready();
             process_actions();
