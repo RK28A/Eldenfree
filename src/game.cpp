@@ -1188,7 +1188,7 @@ bool warp_to(uint32_t entity) {
     uintptr_t proxy = ptr(man + 8), imit = ptr(man + 0x18);
     if (!proxy || !imit) return false;
     using Fn = void (*)(uintptr_t, uintptr_t, uint64_t);
-    ((Fn)g.luaWarp)(imit, proxy, (uint64_t)(entity - 1000));
+    ((Fn)g.luaWarp)(imit, proxy, (uint64_t)entity);
     return true;
 }
 

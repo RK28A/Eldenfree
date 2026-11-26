@@ -206,6 +206,7 @@ static bool greyoll_reset() {
 static bool greyoll_respawn() {
     bool ok = greyoll_reset();
     uint32_t ent = game::grace_entity(76453);
+    if (!ent || ent / 1000 != 1051391) ent = 1051391950;
     bool warped = ok && game::warp_to(ent);
     elog("Greyoll : reset %d, teleportation grace %u : %d", (int)ok, ent, (int)warped);
     msg(!ok ? "Greyoll : flags introuvables"
