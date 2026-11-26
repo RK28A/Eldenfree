@@ -323,6 +323,11 @@ bool chr_set_xz(uintptr_t chr, float x, float z) {
     return ph && wr(ph + g_cfg.offPos, x) && wr(ph + g_cfg.offPos + 8, z);
 }
 
+bool chr_set_pos(uintptr_t chr, const float p[3]) {
+    uintptr_t ph = phys_mod(chr);
+    return ph && write_raw(ph + g_cfg.offPos, p, 12);
+}
+
 bool mount_geom(const float pp[3], const float tp[3]) {
     float dx = pp[0] - tp[0], dz = pp[2] - tp[2], dy = pp[1] - tp[1];
     float h = std::sqrt(dx * dx + dz * dz);

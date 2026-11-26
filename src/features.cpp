@@ -249,9 +249,11 @@ static void tick_runes(double t, uintptr_t pl, Status& st) {
 static bool s_protect = false;
 static int s_snapHp = 0, s_snapTHp = 0;
 static uint8_t s_prevNoDead = 0;
-static double s_protectStart = 0, s_landedSince = 0, s_lastFallT = 0;
+static double s_landedSince = 0, s_lastFallT = 0, s_fallStart = 0, s_groundSince = 0;
 static float s_lastY = 0, s_vy = 0;
-static bool s_haveY = false;
+static bool s_haveY = false, s_haveGround = false;
+static float s_groundPos[3];
+static bool s_groundMounted = false;
 
 static void protect_end() {
     if (!s_protect) return;
@@ -260,31 +262,53 @@ static void protect_end() {
 }
 
 static void tick_fall(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status& st) {
-    if (!g_cfg.noFallDamage || !pl) { protect_end(); s_haveY = false; st.fallProtect = false; return; }
+    if (!g_cfg.noFallDamage || !pl) {
+        protect_end();
+        s_haveY = s_haveGround = false;
+        st.fallProtect = false;
+        return;
+    }
+    uintptr_t mover = mounted && tor ? tor : pl;
     float p[3];
     if (!game::chr_pos(pl, p)) { protect_end(); s_haveY = false; return; }
-    double dt = t - s_lastFallT;
-    if (!s_haveY || dt > 0.5) {
+    int hp = 0, mhp = 0, thp = 0, tmhp = 0;
+    game::chr_hp(pl, hp, mhp);
+    bool haveT = mounted && tor && game::chr_hp(tor, thp, tmhp);
+
+    if (!s_haveY || t - s_lastFallT > 1.0) {
         s_haveY = true;
         s_lastY = p[1];
         s_lastFallT = t;
         s_vy = 0;
-        return;
+    } else {
+        float dy = p[1] - s_lastY;
+        double dt = t - s_lastFallT;
+        if (dy != 0.f || dt >= 0.1) {
+            if (std::fabs(dy) > 60.f) {
+                s_vy = 0;
+            } else if (dt > 0.002) {
+                float v = dy / (float)dt;
+                s_vy = s_vy * 0.4f + v * 0.6f;
+            }
+            s_lastY = p[1];
+            s_lastFallT = t;
+        }
     }
-    if (dt < 0.004) return;
-    float dy = p[1] - s_lastY;
-    s_lastY = p[1];
-    s_lastFallT = t;
-    if (std::fabs(dy) > 40.f) { s_vy = 0; protect_end(); return; }
-    float v = dy / (float)dt;
-    s_vy = s_vy * 0.5f + v * 0.5f;
     bool falling = s_vy < -g_cfg.fallSpeed;
-    int hp = 0, mhp = 0, thp = 0, tmhp = 0;
-    game::chr_hp(pl, hp, mhp);
-    bool haveT = mounted && tor && game::chr_hp(tor, thp, tmhp);
+
+    if (!s_protect && std::fabs(s_vy) < 1.0f && hp > 0) {
+        if (s_groundSince == 0) s_groundSince = t;
+        if (t - s_groundSince > 0.5 && game::chr_pos(mover, s_groundPos)) {
+            s_haveGround = true;
+            s_groundMounted = mounted;
+        }
+    } else {
+        s_groundSince = 0;
+    }
+
     if (falling && !s_protect) {
         s_protect = true;
-        s_protectStart = t;
+        s_fallStart = t;
         s_landedSince = 0;
         s_snapHp = hp;
         s_snapTHp = haveT ? thp : 0;
@@ -300,13 +324,23 @@ static void tick_fall(double t, uintptr_t pl, uintptr_t tor, bool mounted, Statu
             if (!s_snapTHp || thp > s_snapTHp) s_snapTHp = thp;
             if (thp > 0 && thp < s_snapTHp) game::chr_set_hp(tor, s_snapTHp);
         }
-        if (!falling && std::fabs(s_vy) < 1.0f) {
+        if (falling) {
+            s_landedSince = 0;
+            if (t - s_fallStart > 15.0 && s_haveGround) {
+                uintptr_t target = s_groundMounted && mounted && tor ? tor : pl;
+                game::chr_set_pos(target, s_groundPos);
+                s_vy = 0;
+                s_haveY = false;
+                s_fallStart = t;
+                msg("Chute sans fin : retour au dernier sol");
+            }
+        } else if (std::fabs(s_vy) < 1.0f) {
             if (s_landedSince == 0) s_landedSince = t;
-            if (t - s_landedSince > 0.7) protect_end();
+            if (t - s_landedSince > 1.0) protect_end();
         } else {
             s_landedSince = 0;
+            s_fallStart = t;
         }
-        if (t - s_protectStart > 12.0) protect_end();
     }
     st.fallProtect = s_protect;
 }

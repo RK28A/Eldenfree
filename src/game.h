@@ -38,6 +38,7 @@ bool chr_hp(uintptr_t chr, int& hp, int& maxhp);
 bool chr_set_hp(uintptr_t chr, int hp);
 bool chr_pos(uintptr_t chr, float p[3]);
 bool chr_set_xz(uintptr_t chr, float x, float z);
+bool chr_set_pos(uintptr_t chr, const float p[3]);
 bool mount_geom(const float pp[3], const float tp[3]);
 uintptr_t find_mount(uintptr_t player, bool deep);
 

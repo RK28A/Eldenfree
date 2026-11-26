@@ -326,14 +326,15 @@ static void tab_torrent(const feat::Status& st) {
 }
 
 static void tab_player(const feat::Status& st) {
-    card_begin("fall", "D\xC3\xA9g\xC3\xA2ts de chute", "Annule les d\xC3\xA9g\xC3\xA2ts de chute \xC3\xA0 pied et sur Torrent.");
+    card_begin("fall", "D\xC3\xA9g\xC3\xA2ts de chute", "0 PV perdu en chute, \xC3\xA0 pied et sur Torrent, quelle que soit la hauteur.");
     right_pill(st.fallProtect ? "Chute en cours" : "Pr\xC3\xAAt", st.fallProtect ? C_WARN : C_DIM);
     if (toggle("Aucun d\xC3\xA9g\xC3\xA2t de chute", &g_cfg.noFallDamage)) save();
     ImGui::PushItemWidth(-1);
     ImGui::SliderFloat("##fs", &g_cfg.fallSpeed, 4.f, 15.f, "D\xC3\xA9tection de chute  %.1f m/s");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     ImGui::PopItemWidth();
-    hint("Les chutes dans le vide (hors carte) restent mortelles.");
+    hint("Aucun PV perdu, quelle que soit la hauteur. Chute de plus de 15 s (vide) : retour au dernier sol touch\xC3\xA9.");
+    if (!st.noDead) pill("Flag NoDead introuvable : les chutes mortelles peuvent tuer", C_BAD);
     card_end();
 
     card_begin("runes", "Runes \xC3\xA0 la mort", "Tu gardes tes runes quand tu meurs. La tache de sang ne contient rien : pas de duplication.");
