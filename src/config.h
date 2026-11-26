@@ -21,7 +21,9 @@ struct Config {
     float castSpeed = 6.0f;
     std::string castAnims;
     std::string castAnimsNo;
-    bool graceMenu = true;
+    bool graceMenu = false;
+    int jumpKey = 0x46;
+    float flySpeed = 20.0f;
 
     int offPlayerIns = 0;
     int offPgd = 0x8;

@@ -26,15 +26,27 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw.cmake -DCMAKE_BUILD_TYPE=Release
           cmake --build build
+      - name: ModEngine2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p me2dl pkg/ModEngine2 pkg/mods
+          if gh release download --repo soulsmods/ModEngine2 --pattern "*.zip" --dir me2dl; then
+            for z in me2dl/*.zip; do unzip -q -o "$z" -d me2x; done
+            exe=$(find me2x -name modengine2_launcher.exe | head -1)
+            if [ -n "$exe" ]; then cp -r "$(dirname "$exe")"/. pkg/ModEngine2/; fi
+          else
+            echo "ModEngine2 indisponible"
+          fi
+          cp dist/mods_LISEZMOI.txt pkg/mods/LISEZMOI.txt
       - name: Package
         run: |
-          mkdir pkg
           cp build/launcher/EldenFree.exe build/EldenFree.dll dist/LISEZMOI.txt dist/config_eldenring.example.toml pkg/
-          cd pkg && zip -q ../EldenFree.zip *
+          cd pkg && zip -q -r ../EldenFree.zip .
       - uses: actions/upload-artifact@v4
         with:
           name: EldenFree
-          path: pkg/*
+          path: pkg/
           retention-days: 30
       - name: Release
         uses: softprops/action-gh-release@v2

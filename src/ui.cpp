@@ -325,7 +325,8 @@ static void tab_weapons(const feat::Status& st) {
 static void tab_menus(const feat::Status& st) {
     auto& menus = feat::game_menus();
     if (!st.menus) pill("Fonction des menus du jeu introuvable", C_BAD);
-    if (toggle("Renaissance et Renforcer dans le menu de gr\xC3\xA2" "ce", &g_cfg.graceMenu)) save();
+    if (toggle("Renaissance et Renforcer dans le menu de gr\xC3\xA2" "ce (exp\xC3\xA9rimental)", &g_cfg.graceMenu)) save();
+    hint("Recommand\xC3\xA9 : le mod Nexus 5513 (options de gr\xC3\xA2" "ce) dans le dossier mods \xC3\xA0 c\xC3\xB4t\xC3\xA9 de EldenFree.exe.");
     if (g_cfg.graceMenu) {
         if (st.esd) pill("Ajout\xC3\xA9s au menu de gr\xC3\xA2" "ce", C_OK);
         else pill("En attente (charge ta partie)", C_WARN);
@@ -373,17 +374,14 @@ static void tab_torrent(const feat::Status& st) {
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     card_end();
 
-    card_begin("torjump", "Saut infini", "Premier saut normal, puis double saut (avec l'effet) \xC3\xA0 chaque nouvelle pression en l'air, sans limite.");
-    if (toggle("Saut infini sur Torrent", &g_cfg.torrentInfJump)) save();
-    if (st.jumpLearned) {
-        char jb[64];
-        snprintf(jb, sizeof(jb), "Calibr\xC3\xA9 (%d flag%s)", st.jumpLearned, st.jumpLearned > 1 ? "s" : "");
-        pill(jb, C_OK);
-    } else {
-        hint("Calibrage : fais 2 s\xC3\xA9ries de double saut normales (saut puis double saut, atterris entre les deux). Le mod rep\xC3\xA8re le flag \xC2\xAB double saut d\xC3\xA9j\xC3\xA0 fait \xC2\xBB et le remet ensuite \xC3\xA0 z\xC3\xA9ro en l'air.");
-    }
-    if (ImGui::Button("Refaire le calibrage")) feat::post(feat::Act::ResetJump);
-    if (g_cfg.torrentInfJump) patch_toggle("Sauter aussi en chute libre (exp\xC3\xA9rimental)", &g_cfg.torrentAirJump, st.pAir);
+    card_begin("torjump", "Vol", "Sur Torrent : maintiens Saut (F / A) pour d\xC3\xA9" "coller, Torrent vole vers l\xE2\x80\x99" "endroit o\xC3\xB9 tu regardes. Maintiens Saut \xC3\xA0 nouveau pour revenir \xC3\xA0 la normale.");
+    right_pill(st.flying ? "En vol" : "Au sol", st.flying ? C_OK : C_DIM);
+    if (toggle("Vol sur Torrent", &g_cfg.torrentInfJump)) save();
+    ImGui::PushItemWidth(-1);
+    ImGui::SliderFloat("##flyspd", &g_cfg.flySpeed, 5.f, 60.f, "Vitesse de vol  %.0f m/s");
+    if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    ImGui::PopItemWidth();
+    hint("Avancer : stick gauche / ZQSD \xC2\xB7  Plus vite : B / Espace / Maj  \xC2\xB7  Aucun d\xC3\xA9g\xC3\xA2t de chute en vol.");
     card_end();
 
 }

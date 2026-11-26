@@ -18,6 +18,7 @@ struct Status {
     bool esd = false;
     bool warp = false;
     int jumpLearned = 0;
+    bool flying = false;
     int castAttack = 0;
     bool core = false, params = false, player = false, itemGib = false, names = false, flags = false;
     int playerOff = -1;

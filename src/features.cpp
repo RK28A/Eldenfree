@@ -2,7 +2,9 @@
 #include "game.h"
 #include "mem.h"
 #include "config.h"
+#include "overlay.h"
 #include <windows.h>
+#include <xinput.h>
 #include <mutex>
 #include <deque>
 #include <map>
@@ -678,6 +680,98 @@ static void tick_jump(double t, uintptr_t pl, uintptr_t tor, bool mounted, Statu
     }
 }
 
+static bool s_fly = false, s_flyHave = false, s_flyGrav = false;
+static float s_flyPos[3], s_flyPrevGrav = 1.f;
+static double s_jumpHeldSince = 0, s_flyLastT = 0;
+static bool s_jumpConsumed = false;
+static uintptr_t s_flyTor = 0;
+
+static void fly_stop() {
+    if (s_flyGrav && s_flyTor && game::is_chr(s_flyTor))
+        if (uintptr_t ph = game::chr_module(s_flyTor, g_cfg.offPhysMod)) mem::wr(ph + 0x1CC, s_flyPrevGrav);
+    s_flyGrav = false;
+    s_fly = false;
+    s_flyHave = false;
+}
+
+static void tick_fly(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status& st) {
+    st.flying = s_fly;
+    if (!g_cfg.torrentInfJump || !mounted || !tor || g_menuOpen) {
+        if (s_fly && (!mounted || !tor || !g_cfg.torrentInfJump)) { fly_stop(); msg("Vol de Torrent d\xC3\xA9sactiv\xC3\xA9"); }
+        s_jumpHeldSince = 0;
+        if (!s_fly) return;
+        if (g_menuOpen) return;
+    }
+    bool fg = GetForegroundWindow() == overlay::hwnd();
+    uint32_t pb = overlay::pad_buttons();
+    bool jump = fg && ((GetAsyncKeyState(g_cfg.jumpKey) & 0x8000) || (pb & XINPUT_GAMEPAD_A));
+    if (jump) {
+        if (s_jumpHeldSince == 0) { s_jumpHeldSince = t; s_jumpConsumed = false; }
+        if (!s_jumpConsumed && t - s_jumpHeldSince > 0.5) {
+            s_jumpConsumed = true;
+            if (s_fly) { fly_stop(); msg("Vol de Torrent d\xC3\xA9sactiv\xC3\xA9"); }
+            else { s_fly = true; s_flyHave = false; msg("Vol de Torrent activ\xC3\xA9 (maintiens saut pour arr\xC3\xAAter)"); }
+        }
+    } else {
+        s_jumpHeldSince = 0;
+    }
+    st.flying = s_fly;
+    if (!s_fly) return;
+    s_flyTor = tor;
+    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
+    if (ph && !s_flyGrav) {
+        s_flyPrevGrav = mem::rdv<float>(ph + 0x1CC, 1.f);
+        if (s_flyPrevGrav == 0.f) s_flyPrevGrav = 1.f;
+        s_flyGrav = true;
+    }
+    if (ph) mem::wr(ph + 0x1CC, 0.f);
+    for (uintptr_t c : {pl, tor})
+        if (uintptr_t f = game::chr_module(c, g_cfg.offFallMod)) mem::wr(f + g_cfg.offFallTimer, 0.f);
+    float p[3];
+    if (!game::chr_pos(tor, p)) return;
+    double dt = t - s_flyLastT;
+    s_flyLastT = t;
+    if (!s_flyHave || dt > 0.25) {
+        memcpy(s_flyPos, p, 12);
+        s_flyHave = true;
+        return;
+    }
+    uintptr_t wcm = mem::ptr(game::g.worldChrMan);
+    uintptr_t cam = wcm ? mem::ptr(wcm + 0x1ECF0) : 0;
+    float fwd[3] = {0, 0, 0}, right[3] = {0, 0, 0}, cpos[3] = {0, 0, 0};
+    if (cam) {
+        mem::read_raw(cam + 0x30, fwd, 12);
+        mem::read_raw(cam + 0x10, right, 12);
+        mem::read_raw(cam + 0x40, cpos, 12);
+    }
+    float tox = p[0] - cpos[0], toy = p[1] - cpos[1], toz = p[2] - cpos[2];
+    if (fwd[0] * tox + fwd[1] * toy + fwd[2] * toz < 0) { fwd[0] = -fwd[0]; fwd[1] = -fwd[1]; fwd[2] = -fwd[2]; }
+    float rl = std::sqrt(right[0] * right[0] + right[2] * right[2]);
+    if (rl > 1e-4f) { right[0] /= rl; right[2] /= rl; }
+    float cross = fwd[2] * right[0] - fwd[0] * right[2];
+    if (cross < 0) { right[0] = -right[0]; right[2] = -right[2]; }
+    float ix = 0, iy = 0;
+    if (fg) {
+        auto key = [](UINT sc) { return (GetAsyncKeyState(MapVirtualKeyW(sc, MAPVK_VSC_TO_VK)) & 0x8000) != 0; };
+        if (key(0x11)) iy += 1;
+        if (key(0x1F)) iy -= 1;
+        if (key(0x20)) ix += 1;
+        if (key(0x1E)) ix -= 1;
+        float sx, sy;
+        overlay::pad_stick(sx, sy);
+        if (std::fabs(sx) > 0.25f) ix += sx;
+        if (std::fabs(sy) > 0.25f) iy += sy;
+    }
+    ix = std::clamp(ix, -1.f, 1.f);
+    iy = std::clamp(iy, -1.f, 1.f);
+    bool dash = fg && ((GetAsyncKeyState(VK_SPACE) & 0x8000) || (GetAsyncKeyState(VK_SHIFT) & 0x8000) || (pb & XINPUT_GAMEPAD_B));
+    float speed = g_cfg.flySpeed * std::max(g_cfg.torrentMult, 1.f) * (dash ? 2.f : 1.f);
+    float fl = std::sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
+    if (fl > 1e-4f) { fwd[0] /= fl; fwd[1] /= fl; fwd[2] /= fl; }
+    for (int i = 0; i < 3; ++i) s_flyPos[i] += (fwd[i] * iy + (i == 1 ? 0.f : right[i] * ix)) * speed * (float)dt;
+    game::chr_set_pos(tor, s_flyPos);
+}
+
 static DWORD WINAPI scan_thread(void*) {
     ULONGLONG lastNames = 0;
     for (;;) {
@@ -749,7 +843,7 @@ static DWORD WINAPI tick_thread(void*) {
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;
             tick_cast(pl, st);
-            tick_jump(t, pl, tor, mounted, st);
+            tick_fly(t, pl, tor, mounted, st);
             st.names = game::names_ready();
             if (pl && g_menuOpen && g_wantWeapons && t - lastWeps > 1.5) {
                 lastWeps = t;

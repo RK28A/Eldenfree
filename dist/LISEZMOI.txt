@@ -16,3 +16,10 @@ dans config_eldenring.toml (voir config_eldenring.example.toml).
 
 Joue uniquement hors ligne avec le mod. Fais une copie de ta sauvegarde
 (%APPDATA%\EldenRing) avant les deblocages (carte, graces, cloches).
+
+MODS NEXUS (ex. options de grace, mod 5513)
+Copie le contenu du mod dans le dossier mods : EldenFree.exe lancera alors
+le jeu via Mod Engine 2 (inclus dans ModEngine2) avec ces mods + EldenFree.
+
+MANETTE : LB + RB + Vue ouvre/ferme le panneau. LB/RB onglets, A valider, B fermer.
+VOL : sur Torrent, maintiens Saut pour voler vers ou tu regardes, maintiens encore pour arreter.

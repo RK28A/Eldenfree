@@ -74,6 +74,13 @@ static POINT g_lastSys{-99999, -99999};
 static ImVec2 g_vpos{0, 0};
 
 HWND hwnd() { return g_hwnd; }
+uint32_t pad_buttons() { return g_padButtons.load(); }
+bool pad_seen() { return g_padSeen.load(); }
+void pad_stick(float& x, float& y) {
+    uint32_t st = g_padSticks.load();
+    x = (int16_t)(st & 0xFFFF) / 32767.f;
+    y = (int16_t)(st >> 16) / 32767.f;
+}
 
 static void wait_gpu() {
     if (!g_fence || !g_queue) return;

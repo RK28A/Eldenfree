@@ -180,6 +180,55 @@ static std::wstring find_game(const std::wstring& ini) {
     return L"";
 }
 
+static std::wstring exe_dir() {
+    wchar_t self[MAX_PATH];
+    GetModuleFileNameW(nullptr, self, MAX_PATH);
+    std::wstring d(self);
+    return d.substr(0, d.find_last_of(L"\\/"));
+}
+
+static bool dir_has_mods(const std::wstring& dir) {
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    bool any = false;
+    do {
+        std::wstring n = fd.cFileName;
+        if (n == L"." || n == L".." || !_wcsicmp(n.c_str(), L"LISEZMOI.txt")) continue;
+        any = true;
+    } while (!any && FindNextFileW(h, &fd));
+    FindClose(h);
+    return any;
+}
+
+static std::string toml_path(const std::wstring& p) {
+    std::string s = narrow(p);
+    for (auto& c : s)
+        if (c == '\\') c = '/';
+    return s;
+}
+
+static bool launch_modengine(const std::wstring& me2, const std::wstring& game, const std::wstring& dll, const std::wstring& mods, const std::wstring& dd) {
+    std::wstring cfg = dd + L"\\modengine_eldenfree.toml";
+    FILE* f = _wfopen(cfg.c_str(), L"wb");
+    if (!f) return false;
+    fprintf(f, "[modengine]\ndebug = false\nexternal_dlls = [\"%s\"]\n\n", toml_path(dll).c_str());
+    fprintf(f, "[extension.mod_loader]\nenabled = true\nloose_params = false\nmods = [\n    { enabled = true, name = \"mods\", path = \"%s\" },\n]\n\n", toml_path(mods).c_str());
+    fprintf(f, "[extension.scylla_hide]\nenabled = false\n");
+    fclose(f);
+    std::wstring dir = me2.substr(0, me2.find_last_of(L"\\/"));
+    std::wstring cmd = L"\"" + me2 + L"\" -t er -p \"" + game + L"\" -c \"" + cfg + L"\"";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(me2.c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, dir.c_str(), &si, &pi)) return false;
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
 static void ensure_steam() {
     if (find_process(L"steam.exe")) return;
     say("  Steam n'est pas lancé, démarrage de Steam...");
@@ -227,19 +276,35 @@ int wmain() {
         WritePrivateProfileStringW(L"Launcher", L"GamePath", game.c_str(), ini.c_str());
         say("  Jeu : %s", narrow(game).c_str());
         ensure_steam();
+        std::wstring me2 = exe_dir() + L"\\ModEngine2\\modengine2_launcher.exe";
+        std::wstring mods = exe_dir() + L"\\mods";
+        if (exists(me2) && dir_has_mods(mods)) {
+            say("  Mods trouvés dans le dossier mods : lancement via Mod Engine 2...");
+            if (!launch_modengine(me2, game, dll, mods, dd)) fail("impossible de lancer Mod Engine 2.");
+            for (int i = 0; i < 120 && !(pid = find_process(L"eldenring.exe")); ++i) Sleep(500);
+            if (!pid) fail("le jeu ne s'est pas lancé via Mod Engine 2.");
+            for (int i = 0; i < 60 && !has_module(pid, L"EldenFree.dll"); ++i) Sleep(500);
+            if (has_module(pid, L"EldenFree.dll")) {
+                say("  OK ! Mods + EldenFree chargés. F10 ou LB+RB+Vue en jeu.");
+                Sleep(4000);
+                return 0;
+            }
+            say("  Mod Engine n'a pas chargé EldenFree, injection directe...");
+        } else {
         say("  Lancement d'Elden Ring hors ligne (sans Easy Anti-Cheat)...");
         pid = launch(game);
         if (!pid) fail("impossible de lancer eldenring.exe.");
         for (int i = 0; i < 100 && !has_module(pid, L"kernel32.dll"); ++i) Sleep(100);
         Sleep(1500);
         if (!find_process(L"eldenring.exe")) fail("le jeu s'est fermé tout de suite (Steam doit être ouvert et connecté).");
+        }
     } else {
         say("  Jeu déjà lancé (PID %lu), injection directe.", pid);
     }
 
     say("  Injection du mod...");
     if (!inject(pid, dll)) fail("l'injection a échoué. Lance EldenFree.exe en administrateur si le jeu l'est.");
-    say("  OK ! Le panneau s'ouvre avec F10 une fois en jeu.");
+    say("  OK ! Le panneau s'ouvre avec F10 (ou LB+RB+Vue à la manette) une fois en jeu.");
     say("  Réglages et journal : %s", narrow(dd).c_str());
     say("  Joue hors ligne : ne te connecte pas en ligne avec le mod.");
     Sleep(5000);

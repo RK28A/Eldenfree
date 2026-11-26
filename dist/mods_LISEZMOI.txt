@@ -1,0 +1,8 @@
+Mets ici les fichiers d'un mod Mod Engine 2 (ex. mod Nexus 5513 - options
+de site de grace : renaissance, renforcement...).
+
+Copie le CONTENU du dossier du mod ici (dossiers comme action, chr, script,
+msg, param, regulation.bin...), pas le dossier englobant.
+
+Si ce dossier contient des fichiers, EldenFree.exe lance le jeu via
+Mod Engine 2 (inclus) avec ces mods + EldenFree.
