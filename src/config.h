@@ -12,6 +12,8 @@ struct Config {
     float gallopThreshold = 11.0f;
     bool noFallDamage = false;
     float fallSpeed = 7.0f;
+    std::string fallH;
+    std::string fallT;
     bool keepRunes = false;
 
     int offPlayerIns = 0;

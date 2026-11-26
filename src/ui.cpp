@@ -326,15 +326,19 @@ static void tab_torrent(const feat::Status& st) {
 }
 
 static void tab_player(const feat::Status& st) {
-    card_begin("fall", "D\xC3\xA9g\xC3\xA2ts de chute", "0 PV perdu en chute, \xC3\xA0 pied et sur Torrent, quelle que soit la hauteur.");
-    right_pill(st.fallProtect ? "Chute en cours" : "Pr\xC3\xAAt", st.fallProtect ? C_WARN : C_DIM);
+    card_begin("fall", "D\xC3\xA9g\xC3\xA2ts de chute", "Les d\xC3\xA9g\xC3\xA2ts de chute ne sont jamais appliqu\xC3\xA9s, \xC3\xA0 pied et sur Torrent, sans limite de hauteur.");
+    bool cal = st.fallH + st.fallT > 0;
+    right_pill(st.fallProtect ? "En l'air" : cal ? "Calibr\xC3\xA9" : "\xC3\x80 calibrer", st.fallProtect ? C_WARN : cal ? C_OK : C_WARN);
     if (toggle("Aucun d\xC3\xA9g\xC3\xA2t de chute", &g_cfg.noFallDamage)) save();
-    ImGui::PushItemWidth(-1);
-    ImGui::SliderFloat("##fs", &g_cfg.fallSpeed, 4.f, 15.f, "D\xC3\xA9tection de chute  %.1f m/s");
-    if (ImGui::IsItemDeactivatedAfterEdit()) save();
-    ImGui::PopItemWidth();
-    hint("Aucun PV perdu, quelle que soit la hauteur. Chute de plus de 15 s (vide) : retour au dernier sol touch\xC3\xA9.");
-    if (!st.noDead) pill("Flag NoDead introuvable : les chutes mortelles peuvent tuer", C_BAD);
+    if (!cal)
+        hint("Calibrage automatique, une seule fois : arr\xC3\xAAte-toi 1 s \xC3\xA0 deux hauteurs diff\xC3\xA9rentes (marche, escalier), puis fais une chute de plus de 5 m. Le mod rep\xC3\xA8re o\xC3\xB9 le jeu stocke la hauteur de chute et l'enregistre dans EldenFree.ini.");
+    else {
+        char b[96];
+        snprintf(b, sizeof(b), "Champs neutralis\xC3\xA9s : %d hauteur, %d minuteur", st.fallH, st.fallT);
+        hint(b);
+    }
+    if (ImGui::Button("R\xC3\xA9initialiser le calibrage")) feat::post(feat::Act::ResetFall);
+    if (!st.noDead) pill("Filet de s\xC3\xA9" "curit\xC3\xA9 NoDead introuvable", C_BAD);
     card_end();
 
     card_begin("runes", "Runes \xC3\xA0 la mort", "Tu gardes tes runes quand tu meurs. La tache de sang ne contient rien : pas de duplication.");

@@ -323,6 +323,13 @@ bool chr_set_xz(uintptr_t chr, float x, float z) {
     return ph && wr(ph + g_cfg.offPos, x) && wr(ph + g_cfg.offPos + 8, z);
 }
 
+uintptr_t chr_region(uintptr_t chr, int mi, size_t& size) {
+    if (mi < 0) { size = 0x1000; return chr; }
+    size = 0x400;
+    uintptr_t mods = ptr(chr + g_cfg.offModules);
+    return mods ? ptr(mods + (uintptr_t)mi * 8) : 0;
+}
+
 bool chr_set_pos(uintptr_t chr, const float p[3]) {
     uintptr_t ph = phys_mod(chr);
     return ph && write_raw(ph + g_cfg.offPos, p, 12);

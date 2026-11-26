@@ -8,6 +8,7 @@
 #include <map>
 #include <cmath>
 #include <algorithm>
+#include <unordered_set>
 
 namespace feat {
 
@@ -164,6 +165,8 @@ static void act_dup(uint32_t id) {
     refresh_weapons();
 }
 
+static void fall_reset();
+
 static void process_actions() {
     for (;;) {
         std::pair<Act, uint32_t> a;
@@ -184,6 +187,7 @@ static void process_actions() {
         case Act::DupWeapon: act_dup(a.second); break;
         case Act::RefreshInv: refresh_weapons(); break;
         case Act::SaveCfg: cfg_save(); break;
+        case Act::ResetFall: fall_reset(); break;
         }
     }
 }
@@ -246,14 +250,164 @@ static void tick_runes(double t, uintptr_t pl, Status& st) {
     st.runesSaved = s_runesSaved;
 }
 
+struct FField { int mi, off; };
+struct FCand { int chr, mi, off, hits; };
+
+static std::vector<FField> s_fh, s_ft;
+static bool s_fieldsLoaded = false;
+static std::vector<FCand> s_gc, s_tc;
+static std::unordered_set<uint64_t> s_prevRaw, s_tracked;
+static float s_prevGroundY = 0;
+static bool s_havePrevGround = false;
+
 static bool s_protect = false;
-static int s_snapHp = 0, s_snapTHp = 0;
 static uint8_t s_prevNoDead = 0;
-static double s_landedSince = 0, s_lastFallT = 0, s_fallStart = 0, s_groundSince = 0;
-static float s_lastY = 0, s_vy = 0;
-static bool s_haveY = false, s_haveGround = false;
-static float s_groundPos[3];
-static bool s_groundMounted = false;
+static double s_lastFallT = 0, s_groundSince = 0, s_leaveT = 0, s_landedSince = 0;
+static float s_lastY = 0, s_vy = 0, s_groundY = 0, s_apexY = 0;
+static bool s_haveY = false, s_grounded = false, s_airborne = false;
+static float s_chrGroundY[2], s_chrApexY[2];
+
+static constexpr int kMods = 40;
+
+static std::string fields_str(const std::vector<FField>& v) {
+    std::string r;
+    for (auto& f : v) r += (r.empty() ? "" : ",") + std::to_string(f.mi) + ":" + std::to_string(f.off);
+    return r;
+}
+
+static std::vector<FField> fields_parse(const std::string& s) {
+    std::vector<FField> r;
+    size_t i = 0;
+    while (i < s.size()) {
+        size_t c = s.find(',', i);
+        std::string tok = s.substr(i, c == std::string::npos ? std::string::npos : c - i);
+        size_t k = tok.find(':');
+        if (k != std::string::npos) r.push_back({atoi(tok.c_str()), atoi(tok.c_str() + k + 1)});
+        if (c == std::string::npos) break;
+        i = c + 1;
+    }
+    return r;
+}
+
+static void fields_save() {
+    g_cfg.fallH = fields_str(s_fh);
+    g_cfg.fallT = fields_str(s_ft);
+    cfg_save();
+}
+
+static bool field_addr(uintptr_t chr, int mi, int off, uintptr_t& a) {
+    size_t sz = 0;
+    uintptr_t base = game::chr_region(chr, mi, sz);
+    if (!base || off < 0 || (size_t)off + 4 > sz) return false;
+    a = base + off;
+    return true;
+}
+
+static void collect_ground(uintptr_t chrs[2], const float ys[2]) {
+    std::vector<FCand> raw;
+    s_tc.clear();
+    static uint8_t buf[0x1000];
+    for (int c = 0; c < 2; ++c) {
+        if (!chrs[c]) continue;
+        for (int mi = -1; mi < kMods; ++mi) {
+            size_t sz = 0;
+            uintptr_t base = game::chr_region(chrs[c], mi, sz);
+            if (!base || !mem::read_raw(base, buf, sz)) continue;
+            for (size_t off = 0; off + 4 <= sz; off += 4) {
+                float f;
+                uint32_t r;
+                memcpy(&f, buf + off, 4);
+                memcpy(&r, buf + off, 4);
+                if (r == 0) s_tc.push_back({c, mi, (int)off, 0});
+                else if (std::isfinite(f) && std::fabs(f - ys[c]) < 0.3f) raw.push_back({c, mi, (int)off, 0});
+            }
+        }
+    }
+    auto key = [](const FCand& c) { return ((uint64_t)(c.chr & 1) << 48) | ((uint64_t)(uint16_t)(c.mi + 1) << 32) | (uint32_t)c.off; };
+    std::unordered_set<uint64_t> now;
+    for (auto& g : raw) now.insert(key(g));
+    for (auto it = s_tracked.begin(); it != s_tracked.end();) it = now.count(*it) ? std::next(it) : s_tracked.erase(it);
+    if (s_havePrevGround && std::fabs(ys[0] - s_prevGroundY) > 1.0f)
+        for (auto& g : raw)
+            if (s_prevRaw.count(key(g))) s_tracked.insert(key(g));
+    s_prevRaw = std::move(now);
+    s_prevGroundY = ys[0];
+    s_havePrevGround = true;
+    s_gc.clear();
+    for (auto& g : raw)
+        if (s_tracked.count(key(g))) s_gc.push_back(g);
+}
+
+static bool has_field(const std::vector<FField>& v, int mi, int off) {
+    for (auto& f : v)
+        if (f.mi == mi && f.off == off) return true;
+    return false;
+}
+
+static void learn_fall(double t, uintptr_t chrs[2], const float ys[2]) {
+    double e = t - s_leaveT;
+    bool deep = s_chrGroundY[0] - ys[0] > 2.0f;
+    if (!deep) return;
+    bool changed = false;
+    for (auto it = s_gc.begin(); it != s_gc.end();) {
+        uintptr_t a;
+        float f;
+        bool keep = false;
+        if (it->hits >= 0 && chrs[it->chr] && field_addr(chrs[it->chr], it->mi, it->off, a) && mem::rd(a, f)) {
+            float g = s_chrGroundY[it->chr], ap = s_chrApexY[it->chr];
+            keep = std::fabs(f - g) < 0.5f || std::fabs(f - ap) < 0.5f;
+        }
+        if (!keep) { it = s_gc.erase(it); continue; }
+        if (++it->hits >= 30 && s_fh.size() < 4 && !has_field(s_fh, it->mi, it->off)) {
+            s_fh.push_back({it->mi, it->off});
+            changed = true;
+        }
+        ++it;
+    }
+    if (e > 0.4) {
+        for (auto it = s_tc.begin(); it != s_tc.end();) {
+            uintptr_t a;
+            float f;
+            bool keep = false;
+            if (chrs[it->chr] && field_addr(chrs[it->chr], it->mi, it->off, a) && mem::rd(a, f))
+                keep = std::isfinite(f) && f > 0.2f && std::fabs(f - (float)e) < 0.35f + 0.15f * (float)e;
+            if (!keep) { it = s_tc.erase(it); continue; }
+            if (++it->hits >= 30 && s_ft.size() < 4 && !has_field(s_ft, it->mi, it->off)) {
+                s_ft.push_back({it->mi, it->off});
+                changed = true;
+            }
+            ++it;
+        }
+    }
+    if (changed) {
+        fields_save();
+        elog("Chute calibree : hauteur [%s] minuteur [%s]", g_cfg.fallH.c_str(), g_cfg.fallT.c_str());
+        msg("D\xC3\xA9g\xC3\xA2ts de chute : calibrage enregistr\xC3\xA9");
+    }
+}
+
+static void apply_fields(uintptr_t chrs[2], const float ys[2]) {
+    for (int c = 0; c < 2; ++c) {
+        if (!chrs[c]) continue;
+        uintptr_t a;
+        for (auto& f : s_fh)
+            if (field_addr(chrs[c], f.mi, f.off, a)) mem::wr(a, ys[c]);
+        for (auto& f : s_ft)
+            if (field_addr(chrs[c], f.mi, f.off, a)) mem::wr(a, 0.f);
+    }
+}
+
+static void fall_reset() {
+    s_fh.clear();
+    s_ft.clear();
+    s_gc.clear();
+    s_tc.clear();
+    s_havePrevGround = false;
+    s_prevRaw.clear();
+    s_tracked.clear();
+    fields_save();
+    msg("Calibrage des chutes r\xC3\xA9initialis\xC3\xA9");
+}
 
 static void protect_end() {
     if (!s_protect) return;
@@ -262,18 +416,28 @@ static void protect_end() {
 }
 
 static void tick_fall(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status& st) {
+    if (!s_fieldsLoaded) {
+        s_fh = fields_parse(g_cfg.fallH);
+        s_ft = fields_parse(g_cfg.fallT);
+        s_fieldsLoaded = true;
+    }
+    st.fallH = (int)s_fh.size();
+    st.fallT = (int)s_ft.size();
     if (!g_cfg.noFallDamage || !pl) {
         protect_end();
-        s_haveY = s_haveGround = false;
+        s_haveY = s_grounded = s_airborne = false;
         st.fallProtect = false;
         return;
     }
-    uintptr_t mover = mounted && tor ? tor : pl;
-    float p[3];
+    uintptr_t chrs[2] = {pl, mounted ? tor : 0};
+    float ys[2] = {0, 0}, p[3];
     if (!game::chr_pos(pl, p)) { protect_end(); s_haveY = false; return; }
-    int hp = 0, mhp = 0, thp = 0, tmhp = 0;
-    game::chr_hp(pl, hp, mhp);
-    bool haveT = mounted && tor && game::chr_hp(tor, thp, tmhp);
+    ys[0] = p[1];
+    if (chrs[1]) {
+        float tp[3];
+        if (game::chr_pos(chrs[1], tp)) ys[1] = tp[1];
+        else chrs[1] = 0;
+    }
 
     if (!s_haveY || t - s_lastFallT > 1.0) {
         s_haveY = true;
@@ -284,65 +448,58 @@ static void tick_fall(double t, uintptr_t pl, uintptr_t tor, bool mounted, Statu
         float dy = p[1] - s_lastY;
         double dt = t - s_lastFallT;
         if (dy != 0.f || dt >= 0.1) {
-            if (std::fabs(dy) > 60.f) {
-                s_vy = 0;
-            } else if (dt > 0.002) {
-                float v = dy / (float)dt;
-                s_vy = s_vy * 0.4f + v * 0.6f;
-            }
+            if (std::fabs(dy) > 60.f) s_vy = 0;
+            else if (dt > 0.002) s_vy = s_vy * 0.4f + (dy / (float)dt) * 0.6f;
             s_lastY = p[1];
             s_lastFallT = t;
         }
     }
-    bool falling = s_vy < -g_cfg.fallSpeed;
 
-    if (!s_protect && std::fabs(s_vy) < 1.0f && hp > 0) {
+    bool still = std::fabs(s_vy) < 0.3f;
+    if (still && !s_airborne) {
         if (s_groundSince == 0) s_groundSince = t;
-        if (t - s_groundSince > 0.5 && game::chr_pos(mover, s_groundPos)) {
-            s_haveGround = true;
-            s_groundMounted = mounted;
+        if (!s_grounded && t - s_groundSince > 0.5) {
+            s_grounded = true;
+            s_groundY = p[1];
+            for (int c = 0; c < 2; ++c) s_chrGroundY[c] = s_chrApexY[c] = ys[c];
+            collect_ground(chrs, ys);
         }
     } else {
         s_groundSince = 0;
     }
 
-    if (falling && !s_protect) {
-        s_protect = true;
-        s_fallStart = t;
+    if (s_grounded && !s_airborne && (s_vy < -4.5f || p[1] - s_groundY > 0.6f)) {
+        s_airborne = true;
+        s_grounded = false;
+        s_leaveT = s_vy < -4.5f ? t + s_vy / 9.81f : t;
         s_landedSince = 0;
-        s_snapHp = hp;
-        s_snapTHp = haveT ? thp : 0;
-        if (uintptr_t nd = game::nodead_addr()) {
-            s_prevNoDead = mem::rdv<uint8_t>(nd);
-            mem::wr(nd, (uint8_t)1);
-        }
     }
-    if (s_protect) {
-        if (hp > s_snapHp) s_snapHp = hp;
-        if (hp > 0 && hp < s_snapHp) game::chr_set_hp(pl, s_snapHp);
-        if (haveT) {
-            if (!s_snapTHp || thp > s_snapTHp) s_snapTHp = thp;
-            if (thp > 0 && thp < s_snapTHp) game::chr_set_hp(tor, s_snapTHp);
-        }
-        if (falling) {
-            s_landedSince = 0;
-            if (t - s_fallStart > 15.0 && s_haveGround) {
-                uintptr_t target = s_groundMounted && mounted && tor ? tor : pl;
-                game::chr_set_pos(target, s_groundPos);
-                s_vy = 0;
-                s_haveY = false;
-                s_fallStart = t;
-                msg("Chute sans fin : retour au dernier sol");
+
+    if (s_airborne) {
+        for (int c = 0; c < 2; ++c)
+            if (chrs[c] && ys[c] > s_chrApexY[c]) s_chrApexY[c] = ys[c];
+        learn_fall(t, chrs, ys);
+        if (s_vy < -1.0f) apply_fields(chrs, ys);
+        if (s_vy < -g_cfg.fallSpeed && !s_protect) {
+            if (uintptr_t nd = game::nodead_addr()) {
+                s_prevNoDead = mem::rdv<uint8_t>(nd);
+                mem::wr(nd, (uint8_t)1);
+                s_protect = true;
             }
-        } else if (std::fabs(s_vy) < 1.0f) {
+        }
+        if (still) {
             if (s_landedSince == 0) s_landedSince = t;
-            if (t - s_landedSince > 1.0) protect_end();
+            if (t - s_landedSince > 0.6) {
+                s_airborne = false;
+                protect_end();
+            }
         } else {
             s_landedSince = 0;
-            s_fallStart = t;
         }
+    } else if (!s_grounded && s_vy < -1.0f) {
+        apply_fields(chrs, ys);
     }
-    st.fallProtect = s_protect;
+    st.fallProtect = s_airborne;
 }
 
 static bool s_tHave = false;
