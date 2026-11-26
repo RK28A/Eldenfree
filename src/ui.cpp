@@ -99,6 +99,7 @@ void setup() {
     c[ImGuiCol_TableBorderLight] = ImVec4(0.16f, 0.14f, 0.11f, 1.f);
     c[ImGuiCol_TableBorderStrong] = C_LINE;
     c[ImGuiCol_TableRowBgAlt] = ImVec4(1, 1, 1, 0.018f);
+    c[ImGuiCol_NavCursor] = C_GOLD_HI;
 }
 
 static void save() { feat::post(feat::Act::SaveCfg); }
@@ -139,7 +140,7 @@ static void hint(const char* text) {
 
 static bool card_begin(const char* id, const char* title, const char* sub = nullptr) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 14));
-    bool open = ImGui::BeginChild(id, ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding);
+    bool open = ImGui::BeginChild(id, ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_NavFlattened);
     ImGui::PopStyleVar();
     ImGui::PushStyleColor(ImGuiCol_Text, C_GOLD_HI);
     ImGui::TextUnformatted(title);
@@ -481,6 +482,13 @@ bool draw_menu_button() {
 
 void draw() {
     ImGuiIO& io = ImGui::GetIO();
+    static bool wasPad = false;
+    bool padNow = overlay::pad_mode();
+    if (padNow && !wasPad) {
+        ImGui::SetNextWindowFocus();
+        ImGui::SetNavCursorVisible(true);
+    }
+    wasPad = padNow;
     feat::Status st = feat::status();
     feat::g_wantWeapons = false;
     ImVec2 size(600, 640);
@@ -508,7 +516,7 @@ void draw() {
     ImGui::Dummy(ImVec2(0, 4));
 
     float footer = 34;
-    ImGui::BeginChild("body", ImVec2(0, -footer), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+    ImGui::BeginChild("body", ImVec2(0, -footer), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
     static int curTab = 0, wantTab = -1;
     const int tabCount = 7;
     if (!ImGui::IsKeyDown(ImGuiKey_GamepadBack)) {
@@ -527,7 +535,7 @@ void draw() {
             if (ImGui::BeginTabItem(name, nullptr, fl)) {
                 curTab = me;
                 ImGui::Dummy(ImVec2(0, 4));
-                ImGui::BeginChild("scroll", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+                ImGui::BeginChild("scroll", ImVec2(0, 0), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
                 fn(st);
                 ImGui::EndChild();
                 ImGui::EndTabItem();

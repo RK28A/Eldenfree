@@ -6,6 +6,9 @@
 #include <dinput.h>
 #include <xinput.h>
 #include <vector>
+#include <cmath>
+#include <cfloat>
+#include <cstdlib>
 #include <mutex>
 #include <unordered_map>
 #include <atomic>
@@ -71,11 +74,14 @@ static std::atomic<bool> g_padToggle{false};
 static std::atomic<bool> g_padSeen{false};
 static std::atomic<bool> g_padBlock{false};
 static std::atomic<bool> g_kbBlock{false};
+static std::atomic<bool> g_padMode{false};
 static std::atomic<int> g_rawBtn{0}, g_diBtn{0};
 static POINT g_lastSys{-99999, -99999};
 static ImVec2 g_vpos{0, 0};
 
 HWND hwnd() { return g_hwnd; }
+bool pad_mode() { return g_padMode.load(); }
+
 void block_inputs_until_release() {
     g_padBlock = true;
     g_kbBlock = true;
@@ -182,7 +188,8 @@ static void open_effects() {
     }
 }
 
-static void open_panel(bool fromGameMenu) {
+static void open_panel(bool fromGameMenu, bool byPad = false) {
+    g_padMode = byPad;
     feat::g_fromGameMenu = fromGameMenu;
     feat::g_menuOpen = true;
     open_effects();
@@ -198,7 +205,7 @@ static void toggle_check() {
             feat::g_menuOpen = false;
             if (pad) g_padBlock = true;
         } else {
-            open_panel(false);
+            open_panel(false, pad);
         }
     }
     prev = down;
@@ -206,11 +213,25 @@ static void toggle_check() {
 
 static void feed_mouse() {
     ImGuiIO& io = ImGui::GetIO();
-    io.MouseDrawCursor = true;
     RECT rc;
     GetClientRect(g_hwnd, &rc);
     POINT cp;
     long dx = g_dx.exchange(0), dy = g_dy.exchange(0);
+    bool sysMoved = GetCursorPos(&cp) && (std::abs(cp.x - g_lastSys.x) + std::abs(cp.y - g_lastSys.y) > 2);
+    int rawB = g_rawBtn.load(), diB = g_diBtn.load();
+    bool anyBtn = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) || (GetAsyncKeyState(VK_RBUTTON) & 0x8000) || rawB || diB;
+    if (g_padMode && (sysMoved || std::abs(dx) + std::abs(dy) > 2 || anyBtn)) g_padMode = false;
+    if (g_padMode) {
+        io.MouseDrawCursor = false;
+        io.ConfigNavCursorVisibleAlways = true;
+        io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+        for (int i = 0; i < 3; ++i) io.AddMouseButtonEvent(i, false);
+        if (GetCursorPos(&cp)) g_lastSys = cp;
+        g_wheel = 0;
+        return;
+    }
+    io.MouseDrawCursor = true;
+    io.ConfigNavCursorVisibleAlways = false;
     if (GetCursorPos(&cp) && (cp.x != g_lastSys.x || cp.y != g_lastSys.y)) {
         g_lastSys = cp;
         ScreenToClient(g_hwnd, &cp);
