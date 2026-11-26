@@ -11,7 +11,7 @@ Mod Elden Ring (DLL pour Mod Engine 2 2.1.0.0 / Vortex) avec un panneau en jeu s
 | Joueur | Aucun dégât de chute · garder ses runes à la mort |
 | Diagnostic | État des signatures mémoire |
 
-Installation : voir `dist/LISEZMOI.txt`. Le zip prêt à l'emploi est produit par le workflow GitHub Actions `build`.
+Installation : voir `dist/LISEZMOI.txt`. Télécharger le zip prêt à l'emploi : [EldenFree.zip](https://github.com/RK28A/Eldenfree/releases/latest/download/EldenFree.zip) (généré par le workflow `build` à chaque push).
 
 ## Compiler
 

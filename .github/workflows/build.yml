@@ -10,6 +10,9 @@ on:
       - "cmake/**"
       - ".github/workflows/build.yml"
 
+permissions:
+  contents: write
+
 jobs:
   dll:
     runs-on: ubuntu-24.04
@@ -32,3 +35,13 @@ jobs:
           name: EldenFree
           path: pkg/*
           retention-days: 30
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: EldenFree v1.0.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: EldenFree.zip
+          body: |
+            Télécharger EldenFree.zip, extraire EldenFree.dll dans ModEngine2\mod\EldenFree\ et l'ajouter à external_dlls dans config_eldenring.toml (voir LISEZMOI.txt).
