@@ -215,7 +215,7 @@ static void status_row(const char* name, bool ok, const char* detail = nullptr) 
 }
 
 static void tab_boss(const feat::Status& st) {
-    card_begin("greyoll", "Dragon ancien Greyoll", "Butte des dragons de Greyoll  \xC2\xB7  flag 1050400800");
+    card_begin("greyoll", "Dragon ancien Greyoll", "Butte des dragons de Greyoll  \xC2\xB7  flags 1050400800 / 1050407800 / 1050400599");
     right_pill(st.greyoll == 1 ? "Vaincu" : st.greyoll == 0 ? "En vie" : "Inconnu",
                st.greyoll == 1 ? C_WARN : st.greyoll == 0 ? C_OK : C_DIM);
     ImGui::Dummy(ImVec2(0, 2));
@@ -237,12 +237,12 @@ static void tab_world(const feat::Status& st) {
     card_end();
 
     card_begin("graces", "Sites de gr\xC3\xA2" "ce", "Active tous les sites de gr\xC3\xA2" "ce pour la t\xC3\xA9l\xC3\xA9portation.");
-    if (primary("D\xC3\xA9" "bloquer tous les sites de gr\xC3\xA2" "ce", st.flags && st.params)) feat::post(feat::Act::UnlockGraces);
+    if (primary("D\xC3\xA9" "bloquer tous les sites de gr\xC3\xA2" "ce", st.flags)) feat::post(feat::Act::UnlockGraces);
     hint("Irr\xC3\xA9versible sur la sauvegarde : fais une copie avant si tu veux pouvoir revenir en arri\xC3\xA8re.");
     card_end();
 
-    card_begin("bells", "Table ronde  \xC2\xB7  S\xC5\x93urs jumelles", "Toutes les cloches de mineur (pierres de forge + pierres sombres), comme si tu les avais donn\xC3\xA9" "es.");
-    if (primary("D\xC3\xA9" "bloquer la vente des pierres de forge", st.flags && st.params)) feat::post(feat::Act::UnlockBells);
+    card_begin("bells", "Table ronde  \xC2\xB7  S\xC5\x93urs jumelles", "Les 9 cloches de mineur (pierres de forge [1-4] + pierres sombres [1-5]), comme si tu les avais donn\xC3\xA9" "es.");
+    if (primary("D\xC3\xA9" "bloquer la vente des pierres de forge", st.flags)) feat::post(feat::Act::UnlockBells);
     card_end();
 }
 
@@ -304,7 +304,7 @@ static void tab_weapons(const feat::Status& st) {
 }
 
 static void tab_torrent(const feat::Status& st) {
-    card_begin("tor", "Vitesse de Torrent", "Multiplie la vitesse au sol de Torrent, s\xC3\xA9par\xC3\xA9ment pour la marche/trot et le galop. Limit\xC3\xA9 \xC3\xA0 x3.");
+    card_begin("tor", "Vitesse de Torrent", "Acc\xC3\xA9l\xC3\xA8re Torrent (vitesse d'animation, comme les tables Cheat Engine), s\xC3\xA9par\xC3\xA9ment pour la marche/trot et le galop. Limit\xC3\xA9 \xC3\xA0 x3.");
     right_pill(!st.player ? "Hors partie" : st.mounted ? "\xC3\x80 cheval" : "\xC3\x80 pied", st.mounted ? C_OK : C_DIM);
     if (toggle("Activer", &g_cfg.torrentSpeed)) save();
     ImGui::Dummy(ImVec2(0, 2));
@@ -326,19 +326,10 @@ static void tab_torrent(const feat::Status& st) {
 }
 
 static void tab_player(const feat::Status& st) {
-    card_begin("fall", "D\xC3\xA9g\xC3\xA2ts de chute", "Les d\xC3\xA9g\xC3\xA2ts de chute ne sont jamais appliqu\xC3\xA9s, \xC3\xA0 pied et sur Torrent, sans limite de hauteur.");
-    bool cal = st.fallH + st.fallT > 0;
-    right_pill(st.fallProtect ? "En l'air" : cal ? "Calibr\xC3\xA9" : "\xC3\x80 calibrer", st.fallProtect ? C_WARN : cal ? C_OK : C_WARN);
+    card_begin("fall", "D\xC3\xA9g\xC3\xA2ts de chute", "Aucun d\xC3\xA9g\xC3\xA2t de chute, \xC3\xA0 pied et sur Torrent, sans limite de hauteur.");
+    right_pill(st.fallProtect ? "En chute" : "Pr\xC3\xAAt", st.fallProtect ? C_WARN : C_DIM);
     if (toggle("Aucun d\xC3\xA9g\xC3\xA2t de chute", &g_cfg.noFallDamage)) save();
-    if (!cal)
-        hint("Calibrage automatique, une seule fois : arr\xC3\xAAte-toi 1 s \xC3\xA0 deux hauteurs diff\xC3\xA9rentes (marche, escalier), puis fais une chute de plus de 5 m. Le mod rep\xC3\xA8re o\xC3\xB9 le jeu stocke la hauteur de chute et l'enregistre dans EldenFree.ini.");
-    else {
-        char b[96];
-        snprintf(b, sizeof(b), "Champs neutralis\xC3\xA9s : %d hauteur, %d minuteur", st.fallH, st.fallT);
-        hint(b);
-    }
-    if (ImGui::Button("R\xC3\xA9initialiser le calibrage")) feat::post(feat::Act::ResetFall);
-    if (!st.noDead) pill("Filet de s\xC3\xA9" "curit\xC3\xA9 NoDead introuvable", C_BAD);
+    hint("Le minuteur de chute du jeu est remis \xC3\xA0 z\xC3\xA9ro en continu, le sol est trait\xC3\xA9 comme sans d\xC3\xA9g\xC3\xA2t de chute, et le personnage (et Torrent) est intouchable pendant la chute et l'atterrissage.");
     card_end();
 
     card_begin("runes", "Runes \xC3\xA0 la mort", "Tu gardes tes runes quand tu meurs. La tache de sang ne contient rien : pas de duplication.");
@@ -366,9 +357,8 @@ static void tab_diag(const feat::Status& st) {
         snprintf(b, sizeof(b), "WorldChrMan+0x%X", st.playerOff < 0 ? 0 : st.playerOff);
         status_row("Personnage", st.player, st.playerOff >= 0 ? b : "charge ta partie");
         status_row("ItemGib", st.itemGib);
-        status_row("Flag NoDead", st.noDead);
         status_row("Noms d'armes", st.names);
-        status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "monte sur Torrent pour le d\xC3\xA9tecter");
+        status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "appelle Torrent pour le d\xC3\xA9tecter");
         ImGui::EndTable();
     }
     hint("Journal d\xC3\xA9taill\xC3\xA9 : EldenFree.log \xC3\xA0 c\xC3\xB4t\xC3\xA9 de la DLL. Les offsets sont modifiables dans EldenFree.ini.");

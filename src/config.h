@@ -11,9 +11,7 @@ struct Config {
     float torrentRun = 1.0f;
     float gallopThreshold = 11.0f;
     bool noFallDamage = false;
-    float fallSpeed = 7.0f;
-    std::string fallH;
-    std::string fallT;
+    float fallSpeed = 4.0f;
     bool keepRunes = false;
 
     int offPlayerIns = 0;
@@ -26,7 +24,20 @@ struct Config {
     int offHp = 0x138;
     int offMaxHp = 0x13C;
     int offPos = 0x70;
-    int offNoDead = 0x0;
+    int offBehaviorMod = 0x28;
+    int offAnimSpeed = 0x17C8;
+    int offFallMod = 0x70;
+    int offFallTimer = 0x18;
+    int offMaterialMod = 0xA0;
+    int offMaterialNoFall = 0x1B;
+    int offRideMod = 0xE8;
+    int offRideLastMounted = 0x18;
+    int offRideMounted = 0x163;
+    int offRideFallHeight = 0x130;
+    int offChrFlags = 0x19B;
+    int offChrId = 0x188;
+    int offPhysFalling = 0x1D0;
+    int offSummonSet = 0x10F90;
     int itemGibDelta = -0x52;
 };
 

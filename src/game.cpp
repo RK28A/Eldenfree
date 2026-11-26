@@ -31,9 +31,9 @@ bool resolve() {
     if (!g.gameDataMan) g.gameDataMan = scan_rip("GameDataMan", "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 05 48 8B 40 58 C3 C3", 3, 7);
     if (!g.worldChrMan) g.worldChrMan = scan_rip("WorldChrMan", "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 0F 48 39 88", 3, 7);
     if (!g.eventFlagMan) g.eventFlagMan = scan_rip("EventFlagMan", "48 8B 3D ?? ?? ?? ?? 48 85 FF ?? ?? 32 C0 E9", 3, 7);
+    if (!g.eventFlagMan) g.eventFlagMan = scan_rip("EventFlagMan2", "48 8B 3D ?? ?? ?? ?? 48 85 FF 74 ?? 48 8B 49", 3, 7);
     if (!g.soloParam) g.soloParam = scan_rip("SoloParamRepo", "48 8B 0D ?? ?? ?? ?? 48 85 C9 0F 84 ?? ?? ?? ?? 45 33 C0 BA 90", 3, 7);
-    if (!g.chrDbg) g.chrDbg = scan_rip("ChrDbgFlags", "80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 32 C0 48", 2, 7);
-    if (!g.mapItemMan) g.mapItemMan = scan_rip("MapItemMan", "48 8B 0D ?? ?? ?? ?? C7 44 24 50 FF FF FF FF C7 45 A0 FF FF FF FF C7 45 A4", 3, 7);
+    if (!g.mapItemMan) g.mapItemMan = scan_rip("MapItemMan", "48 8B 0D ?? ?? ?? ?? C7 44 24 50 FF FF FF FF", 3, 7);
     if (!g.msgRepo) g.msgRepo = scan_rip("MsgRepository", "48 8B 3D ?? ?? ?? ?? 44 0F B6 30 48 85 FF 75", 3, 7);
     if (!g.itemGib) {
         uintptr_t a = aob("8B 02 83 F8 0A");
@@ -62,16 +62,16 @@ static uintptr_t flag_loc(uint32_t id, uint8_t& mask) {
         else { res = node; node = ptr(node); }
     }
     if (res == head || cat < rdv<uint32_t>(res + 0x20)) return 0;
-    int type = rdv<int32_t>(res + 0x28);
+    int mode = rdv<int32_t>(res + 0x28);
     uintptr_t block = 0;
-    if (type == 1) {
+    if (mode == 1) {
         uintptr_t base = rdv<uintptr_t>(man + 0x28);
         if (base < 0x10000) return 0;
-        block = (uintptr_t)rdv<uint32_t>(man + 0x20) * rdv<uint32_t>(res + 0x30) + base;
-    } else if (type == 2) {
-        return 0;
-    } else {
+        block = base + (uintptr_t)rdv<uint32_t>(man + 0x20) * rdv<uint32_t>(res + 0x30);
+    } else if (mode == 2) {
         block = rdv<uintptr_t>(res + 0x30);
+    } else {
+        return 0;
     }
     if (block < 0x10000) return 0;
     mask = (uint8_t)(1u << (7 - rem % 8));
@@ -323,91 +323,77 @@ bool chr_set_xz(uintptr_t chr, float x, float z) {
     return ph && wr(ph + g_cfg.offPos, x) && wr(ph + g_cfg.offPos + 8, z);
 }
 
-uintptr_t chr_region(uintptr_t chr, int mi, size_t& size) {
-    if (mi < 0) { size = 0x1000; return chr; }
-    size = 0x400;
-    uintptr_t mods = ptr(chr + g_cfg.offModules);
-    return mods ? ptr(mods + (uintptr_t)mi * 8) : 0;
-}
-
 bool chr_set_pos(uintptr_t chr, const float p[3]) {
     uintptr_t ph = phys_mod(chr);
     return ph && write_raw(ph + g_cfg.offPos, p, 12);
 }
 
-bool mount_geom(const float pp[3], const float tp[3]) {
-    float dx = pp[0] - tp[0], dz = pp[2] - tp[2], dy = pp[1] - tp[1];
-    float h = std::sqrt(dx * dx + dz * dz);
-    if (h < 0.15f && std::fabs(dy) < 0.15f) return true;
-    return h < 0.8f && dy > 0.3f && dy < 3.0f;
+uintptr_t chr_module(uintptr_t chr, int off) {
+    uintptr_t mods = ptr(chr + g_cfg.offModules);
+    return mods ? ptr(mods + off) : 0;
 }
 
-static int s_mountWcmOff = -1;
+uint32_t chr_id(uintptr_t chr) { return rdv<uint32_t>(chr + g_cfg.offChrId, 0xFFFFFFFF); }
 
-uintptr_t find_mount(uintptr_t pl, bool deep) {
-    float pp[3];
-    if (!pl || !chr_pos(pl, pp)) return 0;
-    auto test = [&](uint64_t q) -> bool {
-        if (q == pl || !plausible(q)) return false;
-        uint64_t vt;
-        if (!rd(q, vt) || !in_image(vt)) return false;
-        float tp[3];
-        return is_chr(q) && chr_pos(q, tp) && mount_geom(pp, tp);
-    };
-    auto sub = [&](uint64_t base, size_t qwords) -> uint64_t {
-        static thread_local uint64_t b[0x200];
-        if (qwords > 0x200) qwords = 0x200;
-        if (!read_raw(base, b, qwords * 8)) return 0;
-        for (size_t i = 0; i < qwords; ++i)
-            if (test(b[i])) return b[i];
-        return 0;
-    };
-    uintptr_t wcm = ptr(g.worldChrMan);
-    if (wcm && s_mountWcmOff >= 0) {
-        uint64_t q = ptr(wcm + s_mountWcmOff);
-        if (test(q)) return q;
-        if (q) if (uint64_t r = sub(q, 0x200)) return r;
-    }
-    uintptr_t mods = ptr(pl + g_cfg.offModules);
-    if (mods) {
-        uint64_t m[64];
-        if (read_raw(mods, m, sizeof(m))) {
-            for (uint64_t mod : m) {
-                if (!plausible(mod)) continue;
-                uint64_t b[0x80];
-                if (!read_raw(mod, b, sizeof(b))) continue;
-                for (uint64_t q : b) {
-                    if (test(q)) return q;
-                    if (plausible(q))
-                        if (uint64_t r = sub(q, 0x10)) return r;
-                }
-            }
-        }
-    }
-    if (!deep || !wcm) return 0;
-    static uint64_t buf[0x1000];
-    for (int base = 0; base < 0x40000; base += sizeof(buf)) {
-        if (!read_raw(wcm + base, buf, sizeof(buf))) break;
-        for (int i = 0; i < 0x1000; ++i) {
-            uint64_t q = buf[i];
-            if (!plausible(q) || q == pl) continue;
-            if (test(q)) { s_mountWcmOff = base + i * 8; return q; }
-            if (uint64_t r = sub(q, 0x200)) { s_mountWcmOff = base + i * 8; return r; }
-        }
+bool is_mounted(uintptr_t pl) {
+    uintptr_t ride = chr_module(pl, g_cfg.offRideMod);
+    return ride && rdv<uint8_t>(ride + g_cfg.offRideMounted) != 0;
+}
+
+static bool torrent_like(uintptr_t c, uintptr_t pl, bool rideFlag = false) {
+    if (!c || c == pl || !is_chr(c)) return false;
+    if (chr_id(c) == 8000) return true;
+    if (!rideFlag) return false;
+    uintptr_t ride = chr_module(c, g_cfg.offRideMod);
+    return ride && rdv<uint8_t>(ride + 0x33) != 0;
+}
+
+static uintptr_t scan_chr_set(uintptr_t set, uintptr_t pl) {
+    uint64_t vt = rdv<uint64_t>(set);
+    if (!in_image(vt)) return 0;
+    uint32_t cap = rdv<uint32_t>(set + 0x10);
+    uintptr_t entries = ptr(set + 0x18);
+    if (!entries || !cap || cap > 4096) return 0;
+    for (uint32_t i = 0; i < cap; ++i) {
+        uintptr_t c = ptr(entries + (uintptr_t)i * 0x10);
+        if (torrent_like(c, pl)) return c;
     }
     return 0;
 }
 
-uintptr_t nodead_addr() { return g.chrDbg ? g.chrDbg + g_cfg.offNoDead : 0; }
+uintptr_t find_torrent(uintptr_t pl) {
+    if (!pl) return 0;
+    uintptr_t ride = chr_module(pl, g_cfg.offRideMod);
+    if (ride) {
+        uintptr_t last = ptr(ride + g_cfg.offRideLastMounted);
+        if (torrent_like(last, pl, true)) return last;
+    }
+    uintptr_t wcm = ptr(g.worldChrMan);
+    if (!wcm) return 0;
+    if (uintptr_t c = scan_chr_set(wcm + g_cfg.offSummonSet, pl)) return c;
+    for (int off = 0x10E00; off < 0x11400; off += 8)
+        if (uintptr_t c = scan_chr_set(wcm + off, pl)) return c;
+    return 0;
+}
+
+bool anim_speed(uintptr_t chr, float& v) {
+    uintptr_t b = chr_module(chr, g_cfg.offBehaviorMod);
+    return b && rd(b + g_cfg.offAnimSpeed, v);
+}
+
+bool set_anim_speed(uintptr_t chr, float v) {
+    uintptr_t b = chr_module(chr, g_cfg.offBehaviorMod);
+    return b && wr(b + g_cfg.offAnimSpeed, v);
+}
 
 bool give_item(uint32_t id, int qty) {
     if (!g.itemGib || !g.mapItemMan) return false;
     uintptr_t mim = ptr(g.mapItemMan);
     if (!mim) return false;
-    alignas(16) int32_t data[16] = {1, (int32_t)id, qty, -1, -1};
+    alignas(16) int32_t data[16] = {1, (int32_t)id, qty, id < 0x10000000 ? 0 : -1, -1};
     alignas(16) uint8_t out[0x200] = {};
-    using Fn = void (*)(uintptr_t, void*, void*);
-    ((Fn)g.itemGib)(mim, data, out);
+    using Fn = void (*)(uintptr_t, void*, void*, uint64_t);
+    ((Fn)g.itemGib)(mim, data, out, 0);
     return true;
 }
 

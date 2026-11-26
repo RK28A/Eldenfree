@@ -10,7 +10,6 @@ struct Addrs {
     uintptr_t worldChrMan = 0;
     uintptr_t eventFlagMan = 0;
     uintptr_t soloParam = 0;
-    uintptr_t chrDbg = 0;
     uintptr_t mapItemMan = 0;
     uintptr_t itemGib = 0;
     uintptr_t msgRepo = 0;
@@ -39,11 +38,12 @@ bool chr_set_hp(uintptr_t chr, int hp);
 bool chr_pos(uintptr_t chr, float p[3]);
 bool chr_set_xz(uintptr_t chr, float x, float z);
 bool chr_set_pos(uintptr_t chr, const float p[3]);
-uintptr_t chr_region(uintptr_t chr, int mi, size_t& size);
-bool mount_geom(const float pp[3], const float tp[3]);
-uintptr_t find_mount(uintptr_t player, bool deep);
-
-uintptr_t nodead_addr();
+uintptr_t chr_module(uintptr_t chr, int off);
+uint32_t chr_id(uintptr_t chr);
+bool is_mounted(uintptr_t player);
+uintptr_t find_torrent(uintptr_t player);
+bool anim_speed(uintptr_t chr, float& v);
+bool set_anim_speed(uintptr_t chr, float v);
 
 bool give_item(uint32_t id, int qty);
 

@@ -19,3 +19,9 @@ Installation : voir `dist/LISEZMOI.txt`. Télécharger le zip prêt à l'emploi 
 cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw.cmake -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
+
+## Références utilisées pour les offsets / flags
+
+- [The Grand Archives – Elden Ring CT](https://github.com/The-Grand-Archives/Elden-Ring-CT-TGA) : flags (grâces, carte, cloches, Greyoll), ItemGib, NoDead/NoDamage, vitesse d'animation, runes
+- [fromsoftware-rs](https://github.com/vswarte/fromsoftware-rs) : structures ChrIns (modules chute, matériau, monture, physique), event flags, inventaire
+- [Erd-Tools](https://github.com/Nordgaren/Erd-Tools) / [Erd-Tools-CPP](https://github.com/Nordgaren/Erd-Tools-CPP) : signatures AOB, SoloParamRepository
