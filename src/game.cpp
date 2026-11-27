@@ -433,6 +433,7 @@ static CodePatch s_patches[P_COUNT] = {
     {"HorseJump1", "0F B6 81 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? 80 B9", 0, {0xB0, 0x01, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, 0, {}, 0, false, false},
     {"HorseJump2", "88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 88 87", 0, {}, true, 1, 0, {}, 0, false, false},
     {"HorseAirJump", "E8 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 48 8B CF 88 87", 5, {}, true, 0, 0, {}, 0, false, false},
+    {"RideSpecial", "80 79 36 00 0F 95 C0 48 83 C4 28 C3", 4, {0x30, 0xC0, 0x90}, false, 0, 0, {}, 0, false, false},
 };
 
 static bool code_write(uintptr_t a, const uint8_t* b, size_t n) {
@@ -461,7 +462,7 @@ static uintptr_t alloc_near(uintptr_t target) {
 static const char* kPatchAlt[P_COUNT] = {
     "E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 F2 3B 00 00",
     "74 2E C7 45 50 58 02 00 00 C7 45 54 02 00 00 00 C7 45 58 01 00 00 00",
-    nullptr, nullptr, nullptr, nullptr};
+    nullptr, nullptr, nullptr, nullptr, nullptr};
 
 static void patch_scan(CodePatch& p) {
     if (p.scanned) return;

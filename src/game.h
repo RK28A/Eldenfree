@@ -53,7 +53,7 @@ bool give_item(uint32_t id, int qty);
 bool ezstate_event(int id, const std::vector<int>& args);
 bool ezstate_ready();
 
-enum PatchId { P_MAP1, P_MAP2, P_RIDE, P_HJUMP1, P_HJUMP2, P_HFALL, P_COUNT };
+enum PatchId { P_MAP1, P_MAP2, P_RIDE, P_HJUMP1, P_HJUMP2, P_HFALL, P_RIDE2, P_COUNT };
 bool patch_found(int id);
 bool patch_set(int id, bool on);
 bool patch_on(int id);

@@ -548,6 +548,7 @@ static void tick_patches(Status& st) {
     static int lastWarp = -1;
     st.pMap = game::patch_found(game::P_MAP1) && game::patch_found(game::P_MAP2);
     st.pRide = game::patch_found(game::P_RIDE);
+    if (game::patch_found(game::P_RIDE2)) game::patch_set(game::P_RIDE2, g_cfg.rideAnywhere);
     st.pJump = game::patch_found(game::P_HJUMP1) && game::patch_found(game::P_HJUMP2);
     st.pAir = false;
     if (st.pMap) {
@@ -925,16 +926,22 @@ static bool s_jumpPrev = false;
 static double s_vCancelUntil = 0, s_jumpPressT = -10, s_vBoostUntil = 0, s_vPeakUntil = 0;
 static float s_vPeak = 10.f, s_vPeakCur = 0.f;
 
-static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
-    st.fallVelLearned = true;
-    if (!g_cfg.torrentInfJump || !mounted || !tor) { s_jumpPrev = false; return; }
-    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
-    bool airborne = ph && mem::rdv<uint8_t>(ph + 0x1D1) == 0;
+static bool s_jumpPress = false;
+
+static void tick_jumpkey(double t) {
     bool fg = GetForegroundWindow() == overlay::hwnd();
     bool jump = fg && !g_menuOpen && ((GetAsyncKeyState(g_cfg.jumpKey) & 0x8000) || (overlay::pad_buttons() & XINPUT_GAMEPAD_A));
-    bool press = jump && !s_jumpPrev;
+    s_jumpPress = jump && !s_jumpPrev;
     s_jumpPrev = jump;
-    if (press) s_jumpPressT = t;
+    if (s_jumpPress) s_jumpPressT = t;
+}
+
+static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
+    st.fallVelLearned = true;
+    if (!g_cfg.torrentInfJump || !mounted || !tor) return;
+    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
+    bool airborne = ph && mem::rdv<uint8_t>(ph + 0x1D1) == 0;
+    bool press = s_jumpPress;
     if (airborne) {
         if (uintptr_t af = game::chr_module(tor, 0x08)) {
             uint8_t f = mem::rdv<uint8_t>(af + 0x214);
@@ -973,23 +980,25 @@ static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
     }
 }
 
-static bool s_jhBoosted = false;
-static float s_jhPrevV = 0;
+static bool s_jhHave = false;
+static float s_jhLastY = 0;
 
 static void tick_jumpheight(uintptr_t tor, bool mounted) {
     float mult = std::clamp(g_cfg.jumpHeight, 1.f, 10.f);
-    if (mult <= 1.001f || !mounted || !tor) { s_jhBoosted = false; return; }
+    if (mult <= 1.001f || !mounted || !tor || s_fly) { s_jhHave = false; return; }
     uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
-    if (!ph) return;
+    float p[3];
+    if (!ph || !game::chr_pos(tor, p)) { s_jhHave = false; return; }
     bool airborne = mem::rdv<uint8_t>(ph + 0x1D1) == 0;
-    float v = mem::rdv<float>(ph + 0x124, 0.f);
-    if (!airborne && v <= 0.5f) s_jhBoosted = false;
-    if (v > 2.f && s_jhPrevV <= 2.f && !s_jhBoosted && now() - s_jumpPressT < 0.5) {
-        mem::wr(ph + 0x124, v * std::sqrt(mult));
-        s_jhBoosted = true;
+    if (!s_jhHave || !airborne || now() - s_jumpPressT > 1.0) { s_jhLastY = p[1]; s_jhHave = true; return; }
+    float dy = p[1] - s_jhLastY;
+    if (dy > 0.f && dy < 1.5f) {
+        float np[3] = {p[0], p[1] + dy * (mult - 1.f), p[2]};
+        game::chr_set_pos(tor, np);
+        s_jhLastY = np[1];
+    } else {
+        s_jhLastY = p[1];
     }
-    if (v < 0.f) s_jhBoosted = false;
-    s_jhPrevV = v;
 }
 
 static bool s_mcHave = false;
@@ -1089,6 +1098,7 @@ static DWORD WINAPI tick_thread(void*) {
             tick_fall(t, pl, tor, mounted, st);
             tick_torrent(t, tor, mounted, st);
             tick_patches(st);
+            tick_jumpkey(t);
             tick_fallvel(t, tor, mounted, st);
             tick_jumpheight(tor, mounted);
             tick_fly(t, pl, tor, mounted, st);
