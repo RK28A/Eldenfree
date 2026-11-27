@@ -1097,6 +1097,81 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
     return s_flailOn;
 }
 
+struct VCand { int reg, off, hits, miss; };
+static std::vector<VCand> s_vCands;
+static int s_vReg = -1, s_vOff = -1;
+static bool s_vLoaded = false, s_jumpPrev = false;
+static float s_vLastY = 0, s_vVy = 0;
+static double s_vLastT = 0, s_vCancelUntil = 0;
+
+static uintptr_t vel_region(uintptr_t tor, int reg) {
+    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
+    if (!ph) return 0;
+    if (reg == 0) return ph;
+    return mem::ptr(ph + (reg == 1 ? 0x98 : 0xA0));
+}
+
+static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
+    if (!s_vLoaded) {
+        s_vLoaded = true;
+        sscanf(g_cfg.fallVelField.c_str(), "%d:%d", &s_vReg, &s_vOff);
+    }
+    st.fallVelLearned = s_vReg >= 0 && s_vOff >= 0;
+    if (!g_cfg.torrentInfJump || !mounted || !tor) { s_jumpPrev = false; return; }
+    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
+    bool airborne = ph && mem::rdv<uint8_t>(ph + 0x1D1) == 0;
+    float p[3];
+    if (game::chr_pos(tor, p)) {
+        double dt = t - s_vLastT;
+        if (dt > 0.5) { s_vLastY = p[1]; s_vLastT = t; }
+        else if (p[1] != s_vLastY || dt > 0.1) {
+            if (dt > 0.002) s_vVy = (p[1] - s_vLastY) / (float)dt;
+            s_vLastY = p[1];
+            s_vLastT = t;
+        }
+    }
+    if (!st.fallVelLearned && airborne && s_vVy < -6.f) {
+        float buf[0x100];
+        for (int reg = 0; reg < 3; ++reg) {
+            uintptr_t b = vel_region(tor, reg);
+            if (!b || !mem::read_raw(b, buf, sizeof(buf))) continue;
+            for (int i = 0; i < 0x100; ++i) {
+                bool match = std::isfinite(buf[i]) && std::fabs(buf[i] - s_vVy) < std::max(0.8f, std::fabs(s_vVy) * 0.12f);
+                VCand* c = nullptr;
+                for (auto& v : s_vCands)
+                    if (v.reg == reg && v.off == i * 4) { c = &v; break; }
+                if (!c) {
+                    if (match && s_vCands.size() < 4000) s_vCands.push_back({reg, i * 4, 1, 0});
+                    continue;
+                }
+                if (match) c->hits++;
+                else c->miss++;
+            }
+        }
+        for (auto& v : s_vCands)
+            if (v.hits >= 25 && v.miss * 10 <= v.hits) {
+                s_vReg = v.reg;
+                s_vOff = v.off;
+                g_cfg.fallVelField = std::to_string(v.reg) + ":" + std::to_string(v.off);
+                cfg_save();
+                elog("Vitesse de chute de Torrent trouvee : region %d offset 0x%X", v.reg, v.off);
+                break;
+            }
+    }
+    bool fg = GetForegroundWindow() == overlay::hwnd();
+    bool jump = fg && !g_menuOpen && ((GetAsyncKeyState(g_cfg.jumpKey) & 0x8000) || (overlay::pad_buttons() & XINPUT_GAMEPAD_A));
+    if (jump && !s_jumpPrev && airborne) s_vCancelUntil = t + 0.15;
+    s_jumpPrev = jump;
+    if (t < s_vCancelUntil && s_vReg >= 0) {
+        uintptr_t b = vel_region(tor, s_vReg);
+        if (b) {
+            float v = mem::rdv<float>(b + s_vOff, 0.f);
+            if (v < 0.f) mem::wr(b + s_vOff, 0.f);
+        }
+        if (uintptr_t f = game::chr_module(tor, g_cfg.offFallMod)) mem::wr(f + g_cfg.offFallTimer, 0.f);
+    }
+}
+
 static DWORD WINAPI scan_thread(void*) {
     ULONGLONG lastNames = 0;
     for (;;) {
@@ -1176,6 +1251,7 @@ static DWORD WINAPI tick_thread(void*) {
             tick_fall(t, pl, tor, mounted, st);
             tick_torrent(t, tor, mounted, st);
             tick_patches(st);
+            tick_fallvel(t, tor, mounted, st);
             pump_delayed();
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;

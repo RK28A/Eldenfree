@@ -17,6 +17,7 @@ struct Config {
     bool torrentInfJump = false;
     bool torrentAirJump = false;
     std::string jumpFlags;
+    std::string fallVelField;
     bool fastCast = false;
     float castSpeed = 6.0f;
     float weightMult = 1.0f;

@@ -75,6 +75,7 @@ void cfg_load() {
     c.aowBuff = gets(L"Player", L"AshOfWarBuffAnimsV2");
     c.aowNo = gets(L"Player", L"AshOfWarAttackAnimsV2");
     c.jumpFlags = gets(L"Torrent", L"DoubleJumpFlags");
+    c.fallVelField = gets(L"Torrent", L"FallVelocityField");
     c.graceMenu = geti(L"World", L"GraceMenuButtonsExperimental", c.graceMenu);
     c.offTimeActMod = geti(L"Offsets", L"TimeActModule", c.offTimeActMod);
     c.offPgdFp = geti(L"Offsets", L"PgdFp", c.offPgdFp);
@@ -137,6 +138,7 @@ void cfg_save() {
     puts_(L"Player", L"AshOfWarBuffAnimsV2", c.aowBuff);
     puts_(L"Player", L"AshOfWarAttackAnimsV2", c.aowNo);
     puts_(L"Torrent", L"DoubleJumpFlags", c.jumpFlags);
+    puts_(L"Torrent", L"FallVelocityField", c.fallVelField);
     puti(L"World", L"GraceMenuButtonsExperimental", c.graceMenu);
     puti(L"Offsets", L"TimeActModule", c.offTimeActMod, true);
     puti(L"Offsets", L"PgdFp", c.offPgdFp, true);

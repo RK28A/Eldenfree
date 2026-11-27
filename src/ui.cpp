@@ -402,6 +402,7 @@ static void tab_torrent(const feat::Status& st) {
 
     card_begin("torjump", "Saut infini", "Torrent peut sauter \xC3\xA0 nouveau en l'air, sans limite.");
     patch_toggle("Saut infini sur Torrent", &g_cfg.torrentInfJump, st.pJump);
+    hint(st.fallVelLearned ? "Sauter pendant une chute annule la vitesse de chute." : "Pour annuler la vitesse de chute en sautant : fais une longue chute sur Torrent une fois, le mod rep\xC3\xA8re la vitesse de chute puis l'annule \xC3\xA0 chaque saut.");
     card_end();
 
 }

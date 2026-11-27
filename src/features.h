@@ -19,6 +19,7 @@ struct Status {
     bool warp = false;
     int jumpLearned = 0;
     bool flying = false;
+    bool fallVelLearned = false;
     bool pauseLearned = false;
     bool mapBase = false, mapDlc = false, gracesBase = false, gracesDlc = false;
     int deaths = -1;
