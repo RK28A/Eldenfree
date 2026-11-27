@@ -59,6 +59,7 @@ bool patch_set(int id, bool on);
 bool patch_on(int id);
 int speffect_state_set(int row, bool zero);
 int cur_anim(uintptr_t chr);
+int anim_queue(uintptr_t chr, int out[10]);
 bool msgs_ready();
 std::vector<uint32_t> find_msgs(const std::vector<std::wstring>& texts, bool prefix);
 uintptr_t rtti_vtable(const char* mangled);

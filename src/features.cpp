@@ -626,21 +626,30 @@ static void tick_cast(uintptr_t pl, Status& st) {
     st.castAttack = (int)s_aowBuff.size();
     if (!pl) { s_castActive = false; return; }
     double t = now();
-    int anim = game::cur_anim(pl);
-    int pre = anim > 0 ? anim / 1000000 : -1;
-    bool spellAnim = pre >= 400 && pre < 500;
-    bool aowAnim = pre >= 600 && pre < 900 && !is_flail_spin(anim);
-    if (anim != s_animCur) {
-        s_animCur = anim;
+    int q[10];
+    int qn = game::anim_queue(pl, q);
+    bool spellAnim = false, physick = false;
+    int aowAnim = -1, buffAnim = -1;
+    for (int i = 0; i < qn; ++i) {
+        int pre = q[i] / 1000000;
+        if (pre >= 400 && pre < 500) spellAnim = true;
+        if (q[i] % 1000000 == 50210) physick = true;
+        if (s_aowBuff.count(q[i])) buffAnim = q[i];
+        else if (pre >= 600 && pre < 900 && !is_flail_spin(q[i])) aowAnim = q[i];
+    }
+    int anim = buffAnim > 0 ? buffAnim : aowAnim;
+    if (aowAnim > 0 && aowAnim != s_animCur) {
+        s_animCur = aowAnim;
         s_animCurT = t;
-        if (aowAnim && s_aowPend < 0 && !s_aowBuff.count(anim) && !s_aowNo.count(anim)) {
-            s_aowPend = anim;
+        if (s_aowPend < 0) {
+            s_aowPend = aowAnim;
             s_aowPendT = t;
             s_aowMaxDisp = 0;
             game::chr_pos(pl, s_aowPos);
             game::speffects(pl, s_aowFx);
         }
     }
+    if (aowAnim <= 0 && buffAnim <= 0 && t - s_animCurT > 1.0) s_animCur = -1;
     if (s_aowPend > 0) {
         float p[3];
         if (game::chr_pos(pl, p)) {
@@ -659,8 +668,8 @@ static void tick_cast(uintptr_t pl, Status& st) {
                 if (o.first == e.first) { known = true; break; }
             if (!known) { buff = true; break; }
         }
-        if (s_aowMaxDisp > 1.5f) buff = false;
-        if (buff) s_aowBuff.insert(s_aowPend);
+        if (s_aowMaxDisp > 3.f) buff = false;
+        if (buff) { s_aowBuff.insert(s_aowPend); s_aowNo.erase(s_aowPend); }
         else s_aowNo.insert(s_aowPend);
         elog("Cendre de guerre anim %d : %s (deplacement %.1f m)", s_aowPend, buff ? "buff" : "attaque", s_aowMaxDisp);
         s_aowPend = -1;
@@ -673,7 +682,7 @@ static void tick_cast(uintptr_t pl, Status& st) {
         if (aowRun != anim) { aowRun = anim; game::chr_pos(pl, aowRunPos); }
         else if (game::chr_pos(pl, p)) {
             float dx = p[0] - aowRunPos[0], dz = p[2] - aowRunPos[2];
-            if (dx * dx + dz * dz > 2.5f * 2.5f) {
+            if (dx * dx + dz * dz > 4.f * 4.f) {
                 s_aowBuff.erase(anim);
                 s_aowNo.insert(anim);
                 aow_save();
@@ -683,8 +692,7 @@ static void tick_cast(uintptr_t pl, Status& st) {
     } else {
         aowRun = -1;
     }
-    bool physick = anim > 0 && anim % 1000000 == 50210;
-    bool want = g_cfg.fastCast && anim > 0 && ((spellAnim && selected_spell_is_buff()) || s_aowBuff.count(anim) || physick);
+    bool want = g_cfg.fastCast && ((spellAnim && selected_spell_is_buff()) || buffAnim > 0 || physick);
     if (want) {
         game::set_anim_speed(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f));
         s_castActive = true;
@@ -755,7 +763,8 @@ static void tick_fly(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status
     if (!game::chr_pos(tor, p)) return;
     double dt = t - s_flyLastT;
     s_flyLastT = t;
-    if (!s_flyHave || dt > 0.25) {
+    float rx = p[0] - s_flyPos[0], ry = p[1] - s_flyPos[1], rz = p[2] - s_flyPos[2];
+    if (!s_flyHave || dt > 0.25 || rx * rx + ry * ry + rz * rz > 16.f) {
         memcpy(s_flyPos, p, 12);
         s_flyHave = true;
         return;
@@ -832,6 +841,7 @@ static void tick_weight(uintptr_t pl, Status& st) {
 }
 
 static bool s_flailLoaded = false, s_flailOn = false;
+static float s_flailApplied = 1.f;
 static uint32_t s_flailFp = 0;
 static double s_flailLearnUntil = 0;
 static uint32_t s_rwId = 0;
@@ -859,12 +869,19 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
     }
     st.flailHeld = s_rwFlail;
     uint32_t fp = mem::rdv<uint32_t>(P + g_cfg.offPgdFp);
-    int anim = game::cur_anim(pl);
+    int q[10];
+    int qn = game::anim_queue(pl, q);
+    int anim = -1;
     if (g_cfg.flailSpin && s_rwFlail && s_flailFp && fp < s_flailFp) s_flailLearnUntil = t + 3.0;
     s_flailFp = fp;
-    if (s_rwFlail && anim > 0 && t < s_flailLearnUntil && s_flailAnims.insert(anim).second) {
-        elog("Fleau : animation %d apprise", anim);
-        flail_save();
+    for (int i = 0; i < qn; ++i) {
+        int pre = q[i] / 1000000;
+        bool skill = pre >= 600 && pre < 900;
+        if (s_rwFlail && skill && t < s_flailLearnUntil && s_flailAnims.insert(q[i]).second) {
+            elog("Fleau : animation %d apprise", q[i]);
+            flail_save();
+        }
+        if (skill && (is_flail_spin(q[i]) || s_flailAnims.count(q[i]))) anim = q[i];
     }
     static bool energySet = false;
     static uint8_t energyPrev = 0;
@@ -882,7 +899,16 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
         energySet = false;
     }
     float mult = std::clamp(g_cfg.flailMult, 1.f, 25.f);
-    bool want = g_cfg.flailSpin && s_rwFlail && anim > 0 && (is_flail_spin(anim) || s_flailAnims.count(anim));
+    bool want = g_cfg.flailSpin && s_rwFlail && anim > 0;
+    bool moving = false;
+    if (GetForegroundWindow() == overlay::hwnd()) {
+        auto key = [](UINT sc) { return (GetAsyncKeyState(MapVirtualKeyW(sc, MAPVK_VSC_TO_VK)) & 0x8000) != 0; };
+        float sx, sy;
+        overlay::pad_stick(sx, sy);
+        moving = key(0x11) || key(0x1F) || key(0x1E) || key(0x20) || sx * sx + sy * sy > 0.06f;
+    }
+    if (want && moving) mult = 1.f;
+    s_flailApplied = want ? mult : 1.f;
     if (want) {
         game::set_anim_speed(pl, mult);
         s_flailOn = true;
@@ -1047,7 +1073,7 @@ static DWORD WINAPI tick_thread(void*) {
             pump_delayed();
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;
-            if (tick_flail(t, pl, st)) move_comp(pl, std::clamp(g_cfg.flailMult, 1.f, 25.f), true);
+            if (tick_flail(t, pl, st)) move_comp(pl, s_flailApplied, true);
             else {
                 tick_cast(pl, st);
                 move_comp(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f), s_castActive);

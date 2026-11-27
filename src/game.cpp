@@ -585,6 +585,17 @@ int cur_anim(uintptr_t chr) {
     return rdv<int32_t>(ta + 0x20, -1);
 }
 
+int anim_queue(uintptr_t chr, int out[10]) {
+    uintptr_t ta = chr_module(chr, g_cfg.offTimeActMod);
+    int n = 0;
+    if (!ta) return 0;
+    for (int i = 0; i < 10; ++i) {
+        int v = rdv<int32_t>(ta + 0x20 + i * 0x10, -1);
+        if (v > 0) out[n++] = v;
+    }
+    return n;
+}
+
 struct EzArg {
     union {
         float f;
