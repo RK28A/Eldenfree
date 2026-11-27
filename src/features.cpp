@@ -1172,6 +1172,41 @@ static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
     }
 }
 
+static bool s_jhHave = false, s_jhBoosted = false;
+static float s_jhLastY = 0, s_jhPrevV = 0;
+
+static void tick_jumpheight(uintptr_t tor, bool mounted) {
+    float mult = std::clamp(g_cfg.jumpHeight, 1.f, 10.f);
+    if (mult <= 1.001f || !mounted || !tor) { s_jhHave = false; s_jhBoosted = false; return; }
+    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
+    bool airborne = ph && mem::rdv<uint8_t>(ph + 0x1D1) == 0;
+    float p[3];
+    if (!game::chr_pos(tor, p)) { s_jhHave = false; return; }
+    if (s_vReg >= 0 && s_vOff >= 0) {
+        uintptr_t b = vel_region(tor, s_vReg);
+        float v = b ? mem::rdv<float>(b + s_vOff, 0.f) : 0.f;
+        if (!airborne && v <= 0.5f) s_jhBoosted = false;
+        if (v > 2.f && s_jhPrevV <= 2.f && !s_jhBoosted && b) {
+            mem::wr(b + s_vOff, v * std::sqrt(mult));
+            s_jhBoosted = true;
+        }
+        if (v < 0.f) s_jhBoosted = false;
+        s_jhPrevV = v;
+        return;
+    }
+    if (!airborne) { s_jhHave = false; return; }
+    if (!s_jhHave) { s_jhLastY = p[1]; s_jhHave = true; return; }
+    float dy = p[1] - s_jhLastY;
+    if (dy > 0.f && dy < 5.f) {
+        float ny = p[1] + dy * (mult - 1.f);
+        float np[3] = {p[0], ny, p[2]};
+        game::chr_set_pos(tor, np);
+        s_jhLastY = ny;
+    } else {
+        s_jhLastY = p[1];
+    }
+}
+
 static DWORD WINAPI scan_thread(void*) {
     ULONGLONG lastNames = 0;
     for (;;) {
@@ -1252,6 +1287,7 @@ static DWORD WINAPI tick_thread(void*) {
             tick_torrent(t, tor, mounted, st);
             tick_patches(st);
             tick_fallvel(t, tor, mounted, st);
+            tick_jumpheight(tor, mounted);
             pump_delayed();
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;
