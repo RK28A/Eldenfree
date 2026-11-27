@@ -137,17 +137,26 @@ static bool init() {
         if (!full && !head) continue;
         tv.push_back({id, d, (uint32_t)v, full, head, 0, 0});
     }
-    for (int i = 0, n = game::param_rows(s_sp); i < n; ++i) {
-        int32_t id;
-        uintptr_t d;
-        if (!game::param_row(s_sp, i, id, d)) continue;
-        int32_t buf[0x40];
-        if (!mem::read_raw(d + 0x100, buf, sizeof(buf))) continue;
-        for (int k = 0; k < 0x40; ++k) {
-            if (buf[k] <= 0) continue;
-            for (auto& t : tv)
-                if (t.id == buf[k] && id >= t.spId) { t.spId = id; t.spOff = 0x100 + k * 4; }
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int i = 0, n = game::param_rows(s_sp); i < n; ++i) {
+            int32_t id;
+            uintptr_t d;
+            if (!game::param_row(s_sp, i, id, d)) continue;
+            int32_t buf[0x40];
+            if (!mem::read_raw(d + 0x100, buf, sizeof(buf))) continue;
+            for (int k = 0; k < 0x40; ++k) {
+                int off = 0x100 + k * 4;
+                bool known = off == 0x170 || (off >= 0x18C && off <= 0x1A4);
+                if (buf[k] <= 0 || (pass == 0 && !known)) continue;
+                for (auto& t : tv)
+                    if (t.id == buf[k] && id >= t.spId) { t.spId = id; t.spOff = off; }
+            }
         }
+        int usable = 0;
+        for (auto& t : tv)
+            if (t.spId) ++usable;
+        if (usable >= 2) break;
+        for (auto& t : tv) t.spId = t.spOff = 0;
     }
     for (size_t i = 0; i < tv.size() && i < 24; ++i)
         elog("Cosmetique : vfx %d -> armure %u (%s%s), octets %02X %02X %02X %02X, effet %d (+0x%X)", tv[i].id, tv[i].tp, tv[i].full ? "corps" : "", tv[i].head ? " tete" : "",
@@ -160,12 +169,12 @@ static bool init() {
         for (auto& t : tv)
             if (t.full && t.spId) body = &t;
     if (!body) return fail("aucune transformation compl\xC3\xA8te utilisable (" + std::to_string(tv.size()) + " vfx)");
+    s_headClearFull = true;
     for (auto& t : tv)
-        if (&t != body && t.spId && t.spId != body->spId && t.head && !t.full) headRow = &t;
-    s_headClearFull = false;
+        if (&t != body && t.spId && t.spId != body->spId && t.full && (rdv<uint8_t>(t.row + 0x2E) & 0x80)) headRow = &t;
     if (!headRow)
         for (auto& t : tv)
-            if (&t != body && t.spId && t.spId != body->spId) { headRow = &t; s_headClearFull = true; }
+            if (&t != body && t.spId && t.spId != body->spId) headRow = &t;
     if (!headRow) return fail("pas de deuxi\xC3\xA8me transformation pour le casque");
     uintptr_t tpl = game::param_find(s_sp, 310320);
     if (!tpl) return fail("effet mod\xC3\xA8le 310320 introuvable");
@@ -224,7 +233,7 @@ static void build_catalog() {
         struct Sc { int hits, key; size_t avg; };
         std::vector<Sc> score;
         size_t step = std::max<size_t>(1, ids.size() / 80);
-        auto probe = [&](int key) {
+        auto probe = [&](int key, int minHits = 3) {
             int hits = 0;
             size_t len = 0;
             std::string nm;
@@ -232,9 +241,16 @@ static void build_catalog() {
                 bool ok = key >= 0 ? game::fmg_text(key, ids[k].id, nm) : game::fmg_all_text((size_t)(-key - 1), ids[k].id, nm);
                 if (ok) { ++hits; len += nm.size(); }
             }
-            if (hits >= 3 && len / hits < 60) score.push_back({hits, key, len / hits});
+            if (hits >= minHits && len / hits < 60) score.push_back({hits, key, len / hits});
         };
-        for (int f = 0; f < 700; ++f) probe(f);
+        probe(12);
+        if (!score.empty() && score[0].hits >= 10) {
+            probe(313, 1);
+            probe(413, 1);
+        } else {
+            score.clear();
+            for (int f = 0; f < 700; ++f) probe(f);
+        }
         if (score.empty())
             for (size_t i = 0; i < nAll && i < 4000; ++i) probe(-(int)i - 1);
         int maxHits = 0;
