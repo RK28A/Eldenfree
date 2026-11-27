@@ -218,23 +218,36 @@ static void build_catalog() {
     bool useParam = okParam[0] >= 10 && okParam[1] >= 10 && okParam[2] >= 10 && okParam[3] >= 10;
     static std::vector<int> fmgs;
     std::string fl;
+    size_t nAll = game::fmg_all_count();
     if (fmgs.empty()) {
-        std::vector<std::pair<int, int>> score;
+        struct Sc { int hits, key; size_t avg; };
+        std::vector<Sc> score;
         size_t step = std::max<size_t>(1, ids.size() / 80);
-        for (int f = 0; f < 700; ++f) {
+        auto probe = [&](int key) {
             int hits = 0;
             size_t len = 0;
             std::string nm;
-            for (size_t k = 0; k < ids.size(); k += step)
-                if (game::fmg_text(f, ids[k].id, nm)) { ++hits; len += nm.size(); }
-            if (hits >= 3 && len / hits < 60) score.push_back({hits, f});
-        }
-        std::sort(score.begin(), score.end(), [](auto& x, auto& y) { return x.first > y.first; });
+            for (size_t k = 0; k < ids.size(); k += step) {
+                bool ok = key >= 0 ? game::fmg_text(key, ids[k].id, nm) : game::fmg_all_text((size_t)(-key - 1), ids[k].id, nm);
+                if (ok) { ++hits; len += nm.size(); }
+            }
+            if (hits >= 3 && len / hits < 60) score.push_back({hits, key, len / hits});
+        };
+        for (int f = 0; f < 700; ++f) probe(f);
+        if (score.empty())
+            for (size_t i = 0; i < nAll && i < 4000; ++i) probe(-(int)i - 1);
+        int maxHits = 0;
+        for (auto& sc : score) maxHits = std::max(maxHits, sc.hits);
+        std::sort(score.begin(), score.end(), [&](const Sc& x, const Sc& y) {
+            bool xa = x.hits * 2 >= maxHits, ya = y.hits * 2 >= maxHits;
+            if (xa != ya) return xa;
+            return x.avg < y.avg;
+        });
         for (auto& sc : score) {
-            fmgs.push_back(sc.second);
-            fl += " " + std::to_string(sc.second) + "(" + std::to_string(sc.first) + ")";
+            fmgs.push_back(sc.key);
+            fl += " " + std::to_string(sc.key) + "(" + std::to_string(sc.hits) + "/" + std::to_string(sc.avg) + ")";
         }
-        elog("Cosmetique : %zu armures (categories %s), textes de noms :%s", ids.size(), useParam ? "param" : "par numero", fl.empty() ? " aucun" : fl.c_str());
+        elog("Cosmetique : %zu armures (categories %s), %zu FMG connus, textes de noms :%s", ids.size(), useParam ? "param" : "par numero", nAll, fl.empty() ? " aucun" : fl.c_str());
     }
     std::vector<Piece> cat[4];
     std::unordered_map<uint32_t, std::string> names;
@@ -242,8 +255,10 @@ static void build_catalog() {
         int c = useParam ? e.cp : e.ci;
         if (c < 0) continue;
         std::string name;
-        for (int f : fmgs)
-            if (game::fmg_text(f, e.id, name) && !name.empty()) break;
+        for (int f : fmgs) {
+            bool ok = f >= 0 ? game::fmg_text(f, e.id, name) : game::fmg_all_text((size_t)(-f - 1), e.id, name);
+            if (ok && !name.empty()) break;
+        }
         if (name.empty() || name[0] == '[' || name[0] == '%' || name[0] == '?') continue;
         cat[c].push_back({e.id, name});
         names[e.id] = name;
@@ -257,7 +272,7 @@ static void build_catalog() {
         size_t nf = fmgs.size();
         fmgs.clear();
         std::lock_guard<std::mutex> lk(s_em);
-        s_err = "noms d'armures introuvables (" + std::to_string(ids.size()) + " armures, " + std::to_string(nf) + " textes candidats, " + std::to_string(total) + " noms)";
+        s_err = "noms d'armures introuvables (" + std::to_string(ids.size()) + " armures, " + std::to_string(nAll) + " FMG connus, " + std::to_string(nf) + " textes candidats, " + std::to_string(total) + " noms)";
         return;
     }
     for (int c = 0; c < 4; ++c) s_cat[c] = std::move(cat[c]);

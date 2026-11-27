@@ -902,11 +902,40 @@ template <class F> static void fmg_ids(uintptr_t f, F&& fn) {
     }
 }
 
+static uintptr_t fmg_table(uintptr_t repo) {
+    static int layout = -1;
+    static double lastLog = 0;
+    uintptr_t a = ptr(repo + 8);
+    if (!a) return 0;
+    uintptr_t cand[5] = {a, ptr(a), ptr(a + 8), ptr(a + 0x10), ptr(a + 0x18)};
+    auto dagger = [&](uintptr_t t) {
+        uintptr_t f = t ? ptr(t + 11 * 8) : 0;
+        std::wstring w;
+        return f && fmg_header(f) && fmg_get(f, 1000000, w);
+    };
+    if (layout >= 0 && dagger(cand[layout])) return cand[layout];
+    for (int i = 0; i < 5; ++i)
+        if (dagger(cand[i])) {
+            if (layout != i) elog("Textes : table des FMG trouvee (variante %d)", i);
+            layout = i;
+            return cand[i];
+        }
+    (void)lastLog;
+    return a;
+}
+
+size_t fmg_all_count() {
+    std::lock_guard<std::mutex> lk(s_nm);
+    return s_allFmgs.size();
+}
+
+bool fmg_all_text(size_t i, uint32_t id, std::string& out);
+
 void names_load() {
     uintptr_t repo = ptr(g.msgRepo);
     if (!repo) return;
     {
-        uintptr_t table = ptr(repo + 8);
+        uintptr_t table = fmg_table(repo);
         std::vector<uintptr_t> direct;
         if (table)
             for (int idx : {11, 115, 310, 410}) {
@@ -1362,7 +1391,7 @@ int talk_menu_id() {
 
 bool goods_name(uint32_t id, std::wstring& out) {
     uintptr_t repo = ptr(g.msgRepo);
-    uintptr_t table = repo ? ptr(repo + 8) : 0;
+    uintptr_t table = repo ? fmg_table(repo) : 0;
     if (!table) return false;
     for (int idx : {10, 111, 319, 419}) {
         uintptr_t f = ptr(table + (uintptr_t)idx * 8);
@@ -1374,7 +1403,7 @@ bool goods_name(uint32_t id, std::wstring& out) {
 
 uint32_t find_goods(const std::vector<std::wstring>& needles) {
     uintptr_t repo = ptr(g.msgRepo);
-    uintptr_t table = repo ? ptr(repo + 8) : 0;
+    uintptr_t table = repo ? fmg_table(repo) : 0;
     if (!table) return 0;
     std::vector<std::wstring> low;
     for (auto& n : needles) low.push_back(lower(n));
@@ -1398,7 +1427,7 @@ uint32_t find_goods(const std::vector<std::wstring>& needles) {
 
 uint32_t find_name(const std::vector<int>& fmgIdx, const std::vector<std::vector<std::wstring>>& groups) {
     uintptr_t repo = ptr(g.msgRepo);
-    uintptr_t table = repo ? ptr(repo + 8) : 0;
+    uintptr_t table = repo ? fmg_table(repo) : 0;
     if (!table) return 0;
     std::vector<std::vector<std::wstring>> low;
     for (auto& gr : groups) {
@@ -1524,7 +1553,7 @@ int inv_qty(uint32_t itemId, int setTo) {
 
 bool fmg_text(int fmgIdx, uint32_t id, std::string& out) {
     uintptr_t repo = ptr(g.msgRepo);
-    uintptr_t table = repo ? ptr(repo + 8) : 0;
+    uintptr_t table = repo ? fmg_table(repo) : 0;
     uintptr_t f = table ? ptr(table + (uintptr_t)fmgIdx * 8) : 0;
     std::wstring w;
     if (!f || !fmg_header(f) || !fmg_get(f, id, w)) return false;
@@ -1537,6 +1566,19 @@ size_t param_row_size(uintptr_t t) {
     uintptr_t a = 0, b = 0;
     if (param_rows(t) < 2 || !param_row(t, 0, id, a) || !param_row(t, 1, id, b) || b <= a) return 0;
     return b - a;
+}
+
+bool fmg_all_text(size_t i, uint32_t id, std::string& out) {
+    uintptr_t f = 0;
+    {
+        std::lock_guard<std::mutex> lk(s_nm);
+        if (i >= s_allFmgs.size()) return false;
+        f = s_allFmgs[i];
+    }
+    std::wstring w;
+    if (!fmg_header(f) || !fmg_get(f, id, w)) return false;
+    out = utf8(w);
+    return !out.empty();
 }
 
 }
