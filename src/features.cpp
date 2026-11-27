@@ -1089,7 +1089,7 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
     static uint8_t energyPrev = 0;
     static uintptr_t energyChr = 0;
     uintptr_t dm = game::chr_module(pl, g_cfg.offDataMod);
-    if (g_cfg.flailSpin && s_rwFlail && dm) {
+    if (g_cfg.flailSpin && s_rwFlail && dm && !s_flailAnims.empty()) {
         uint8_t f = mem::rdv<uint8_t>(dm + g_cfg.offChrFlags);
         if (!energySet) { energyPrev = f & 0x0C; energySet = true; energyChr = pl; }
         if ((f & 0x0C) != 0x0C) mem::wr(dm + g_cfg.offChrFlags, (uint8_t)(f | 0x0C));
