@@ -620,6 +620,7 @@ static void tick_cast(uintptr_t pl, Status& st) {
     if (!s_castLoaded) {
         s_castLoaded = true;
         parse_set(g_cfg.aowBuff, s_aowBuff);
+        s_aowBuff.insert(733040000);
         parse_set(g_cfg.aowNo, s_aowNo);
     }
     st.castLearned = 0;
@@ -662,7 +663,7 @@ static void tick_cast(uintptr_t pl, Status& st) {
         game::speffects(pl, fx);
         bool buff = false;
         for (auto& e : fx) {
-            if (e.second < 15.f || e.second > 900.f) continue;
+            if (e.second >= 0.f && (e.second < 5.f || e.second > 900.f)) continue;
             bool known = false;
             for (auto& o : s_aowFx)
                 if (o.first == e.first) { known = true; break; }
@@ -921,7 +922,8 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
 }
 
 static bool s_jumpPrev = false;
-static double s_vCancelUntil = 0, s_jumpPressT = -10;
+static double s_vCancelUntil = 0, s_jumpPressT = -10, s_vBoostUntil = 0, s_vPeakUntil = 0;
+static float s_vPeak = 10.f, s_vPeakCur = 0.f;
 
 static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
     st.fallVelLearned = true;
@@ -939,9 +941,29 @@ static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
             if (f & 0x20) mem::wr(af + 0x214, (uint8_t)(f & ~0x20));
         }
     }
-    if (press && airborne) s_vCancelUntil = t + 0.4;
-    if (t < s_vCancelUntil && ph) {
-        float v = mem::rdv<float>(ph + 0x124, 0.f);
+    if (!ph) return;
+    float v = mem::rdv<float>(ph + 0x124, 0.f);
+    if (press && airborne) {
+        if (v < -1.f) {
+            s_vBoostUntil = t + 0.15;
+        } else {
+            s_vPeakUntil = t + 0.5;
+            s_vPeakCur = 0.f;
+            s_vCancelUntil = t + 0.4;
+        }
+    }
+    if (t < s_vPeakUntil) {
+        s_vPeakCur = std::max(s_vPeakCur, v);
+    } else if (s_vPeakCur > 4.f) {
+        s_vPeak = std::clamp(s_vPeakCur, 6.f, 20.f);
+        s_vPeakCur = 0.f;
+    }
+    if (t < s_vBoostUntil) {
+        if (v < s_vPeak) {
+            mem::wr(ph + 0x124, s_vPeak);
+            mem::wr(ph + 0x134, s_vPeak);
+        }
+    } else if (t < s_vCancelUntil) {
         if (v < 0.f) {
             mem::wr(ph + 0x124, 0.f);
             mem::wr(ph + 0x134, 0.f);
