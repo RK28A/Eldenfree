@@ -8,12 +8,16 @@ namespace feat {
 
 constexpr uint32_t GREYOLL_FLAG = 1050400800;
 
-enum class Act { ResetGreyoll, UnlockMap, UnlockGraces, UnlockBells, DupWeapon, RefreshInv, SaveCfg, OpenMenu, ResetCast, ResetJump, MapBase, MapDlc, GracesBase, GracesDlc, GiveBloodboil, ResetFlail };
+enum class Act { ResetGreyoll, UnlockMap, UnlockGraces, UnlockBells, DupWeapon, RefreshInv, SaveCfg, OpenMenu, ResetCast, ResetJump, MapBase, MapDlc, GracesBase, GracesDlc, GiveBloodboil, ResetFlail, BuildSave, BuildLoad, BuildDelete };
 
 struct Status {
     bool menus = false;
     bool pMap = false, pRide = false, pJump = false, pAir = false, warpOk = false;
     bool pRide2 = false, rideGuard = false;
+    int dupeRows = -1;
+    bool buildsReady = false, buildBusy = false;
+    bool dupeFree = false;
+    uint32_t gemR = 0, gemL = 0;
     int rideGuardHits = 0;
     int castLearned = 0;
     bool casting = false;
@@ -57,6 +61,8 @@ extern std::atomic<bool> g_gameMenu;
 extern std::atomic<bool> g_fromGameMenu;
 
 void start();
+void frame_hook();
+void build_save(const std::string& name, int overwrite);
 void post(Act a, uint32_t arg = 0);
 Status status();
 std::vector<WeaponRow> weapons();

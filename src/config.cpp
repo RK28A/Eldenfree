@@ -75,7 +75,9 @@ void cfg_load() {
     c.flailAnims = gets(L"Plus", L"FlailSpinAnimsV3");
     c.castAnims = gets(L"Player", L"CastSpellAnimsV3");
     c.castAnimsNo = gets(L"Player", L"CastSpellAnimsAttack");
-    c.aowBuff = gets(L"Player", L"AshOfWarBuffAnimsV5");
+    c.aowBuff = gets(L"Player", L"AshOfWarBuffAnimsV6");
+    c.freeAshDupe = geti(L"Menus", L"FreeAshDupe", c.freeAshDupe);
+    c.buildStats = geti(L"Builds", L"RestoreStats", c.buildStats);
     c.aowNo = gets(L"Player", L"AshOfWarAttackAnimsV5");
     c.jumpFlags = gets(L"Torrent", L"DoubleJumpFlags");
     c.fallVelField = gets(L"Torrent", L"FallVelocityField");
@@ -142,7 +144,9 @@ void cfg_save() {
     puts_(L"Plus", L"FlailSpinAnimsV3", c.flailAnims);
     puts_(L"Player", L"CastSpellAnimsV3", c.castAnims);
     puts_(L"Player", L"CastSpellAnimsAttack", c.castAnimsNo);
-    puts_(L"Player", L"AshOfWarBuffAnimsV5", c.aowBuff);
+    puts_(L"Player", L"AshOfWarBuffAnimsV6", c.aowBuff);
+    puti(L"Menus", L"FreeAshDupe", c.freeAshDupe);
+    puti(L"Builds", L"RestoreStats", c.buildStats);
     puts_(L"Player", L"AshOfWarAttackAnimsV5", c.aowNo);
     puts_(L"Torrent", L"DoubleJumpFlags", c.jumpFlags);
     puts_(L"Torrent", L"FallVelocityField", c.fallVelField);

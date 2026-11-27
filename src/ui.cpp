@@ -1,3 +1,4 @@
+#include "builds.h"
 #include "overlay.h"
 #include "features.h"
 #include "config.h"
@@ -373,7 +374,7 @@ static void tab_menus(const feat::Status& st) {
         }
         if (col == 1) ImGui::SameLine();
         ImGui::PushID((int)i);
-        bool first = i == 0 || i == 3;
+        bool first = i == 0 || i == 4;
         bool clicked = first ? primary(m.label, st.menus && st.player, w) : (([&] {
             if (!(st.menus && st.player)) ImGui::BeginDisabled();
             bool r = ImGui::Button(m.label, ImVec2(w, 0));
@@ -389,6 +390,52 @@ static void tab_menus(const feat::Status& st) {
     }
     ImGui::Dummy(ImVec2(0, 4));
     hint("Le panneau se ferme et le menu du jeu s'ouvre, comme \xC3\xA0 un site de gr\xC3\xA2" "ce. La renaissance demande une Larme larvaire, comme chez Rennala.");
+    ImGui::Dummy(ImVec2(0, 4));
+    card_begin("dupe", "Duplication de cendres gratuite", "Dupliquer une cendre de guerre ne consomme plus de Cendres de guerre perdues.");
+    right_pill(st.dupeRows > 0 ? (st.dupeFree ? "Gratuit" : "Co\xC3\xBBt normal") : "Liste introuvable", st.dupeRows > 0 ? (st.dupeFree ? C_OK : C_DIM) : C_BAD);
+    if (toggle("Duplication gratuite", &g_cfg.freeAshDupe)) save();
+    card_end();
+}
+
+static void tab_builds(const feat::Status& st) {
+    static char name[48] = "";
+    auto list = builds::list();
+    card_begin("bsave", "Enregistrer", "Sauvegarde tes stats, armes, armure, talismans, fl\xC3\xA8" "ches, objets rapides, sacoche et sorts m\xC3\xA9moris\xC3\xA9s.");
+    right_pill(st.buildsReady ? "Pr\xC3\xAAt" : "Fonctions du jeu introuvables", st.buildsReady ? C_OK : C_BAD);
+    ImGui::PushItemWidth(-1);
+    ImGui::InputTextWithHint("##bn", "Nom du build (optionnel)", name, sizeof(name));
+    ImGui::PopItemWidth();
+    if (primary("Enregistrer le build actuel", st.player)) {
+        feat::build_save(name, -1);
+        name[0] = 0;
+    }
+    if (toggle("Restaurer aussi les stats au chargement", &g_cfg.buildStats)) save();
+    hint("Au chargement, seuls les objets pr\xC3\xA9sents dans ton inventaire sont \xC3\xA9quip\xC3\xA9s : rien n'est cr\xC3\xA9\xC3\xA9. Grande rune et larmes de la fiole ne sont pas g\xC3\xA9r\xC3\xA9" "es.");
+    card_end();
+
+    if (list.empty()) hint("Aucun build enregistr\xC3\xA9.");
+    static const char* sn[8] = {"VIG", "ESP", "END", "FOR", "DEX", "INT", "FOI", "ARC"};
+    for (size_t i = 0; i < list.size(); ++i) {
+        auto& b = list[i];
+        ImGui::PushID((int)i);
+        char sub[256], lv[32];
+        int o = 0;
+        for (int k = 0; k < 8; ++k) o += snprintf(sub + o, sizeof(sub) - o, "%s%s %d", k ? "  " : "", sn[k], b.stats[k]);
+        snprintf(lv, sizeof(lv), "Niveau %d", b.level());
+        card_begin("b", b.name.c_str(), sub);
+        right_pill(lv, C_DIM);
+        if (!b.summary.empty()) hint(b.summary.c_str());
+        float w = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2) / 3.f;
+        if (primary("Charger", st.player && st.buildsReady && !st.buildBusy, w)) feat::post(feat::Act::BuildLoad, (uint32_t)i);
+        ImGui::SameLine();
+        if (!st.player) ImGui::BeginDisabled();
+        if (ImGui::Button("\xC3\x89" "craser", ImVec2(w, 0))) feat::build_save(b.name, (int)i);
+        if (!st.player) ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Supprimer", ImVec2(w, 0))) feat::post(feat::Act::BuildDelete, (uint32_t)i);
+        card_end();
+        ImGui::PopID();
+    }
 }
 
 static void tab_torrent(const feat::Status& st) {
@@ -514,6 +561,11 @@ static void tab_diag(const feat::Status& st) {
         status_row("Garde anti-disparition de Torrent", st.rideGuard, st.rideGuard ? rg : "active Torrent partout puis siffle une fois");
         status_row("Patch saut infini", st.pJump);
         status_row("Patch double saut en chute", st.pAir);
+        char gm[64];
+        snprintf(gm, sizeof(gm), "droite %d  \xC2\xB7  gauche %d", (int)st.gemR, (int)st.gemL);
+        status_row("Cendres en main", st.gemR != 0xFFFFFFFF, gm);
+        status_row("Duplication de cendres", st.dupeRows > 0);
+        status_row("Builds (fonctions d'\xC3\xA9quipement)", st.buildsReady);
         status_row("Noms d'armes", st.names);
         status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "appelle Torrent pour le d\xC3\xA9tecter");
         ImGui::EndTable();
@@ -595,7 +647,7 @@ void draw() {
     float footer = 34;
     ImGui::BeginChild("body", ImVec2(0, -footer), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
     static int curTab = 0, wantTab = -1;
-    const int tabCount = 8;
+    const int tabCount = 9;
     if (!ImGui::IsKeyDown(ImGuiKey_GamepadBack)) {
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) wantTab = (curTab + tabCount - 1) % tabCount;
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) wantTab = (curTab + 1) % tabCount;
@@ -623,6 +675,7 @@ void draw() {
         tab("Monde", tab_world);
         tab("Menus", tab_menus);
         tab("Armes", tab_weapons);
+        tab("Builds", tab_builds);
         tab("Torrent", tab_torrent);
         tab("Joueur", tab_player);
         tab("Plus", tab_plus);

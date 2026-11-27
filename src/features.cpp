@@ -1,3 +1,4 @@
+#include "builds.h"
 #include "watch.h"
 #include "features.h"
 #include "game.h"
@@ -231,6 +232,7 @@ const std::vector<GameMenu>& game_menus() {
         {"Renforcer une arme", "Forge", 24, {0}},
         {"Table de forge", "Forge", 24, {1}},
         {"Cendres de guerre", "Forge", 48, {}},
+        {"Dupliquer des cendres", "Forge", 146, {}},
         {"Renaissance", "Rennala", 113, {}},
         {"Apparence", "Rennala", 81, {0}},
         {"Monter de niveau", "Site de gr\xC3\xA2" "ce", 31, {}},
@@ -246,9 +248,152 @@ const std::vector<GameMenu>& game_menus() {
 }
 
 static std::unordered_set<int> s_castAnims, s_castNo, s_aowBuff, s_aowNo, s_flailAnims;
+static std::unordered_map<int, std::vector<int>> s_aowCand;
+static std::unordered_map<int, int> s_aowStrike;
 static void cast_save();
 static void flail_save();
 
+
+static int s_dupeMin = 0, s_dupeMax = 0;
+
+struct DupeRow { uintptr_t shop; int32_t mtrl; uintptr_t mrow; };
+static std::vector<DupeRow> s_dupeRows;
+static bool s_dupeScanned = false, s_dupeApplied = false, s_dupeByNum = false;
+
+static void tick_dupe(Status& st) {
+    if (!game::params_ready()) return;
+    if (!s_dupeScanned) {
+        s_dupeScanned = true;
+        auto mt = game::param_tables("EQUIP_MTRL_SET_PARAM_ST");
+        struct Hit { int32_t id; DupeRow r; int32_t mat; };
+        std::vector<Hit> hits;
+        std::unordered_map<int32_t, int> matCount;
+        for (uintptr_t t : game::param_tables("SHOP_LINEUP_PARAM"))
+            for (int i = 0, n = game::param_rows(t); i < n; ++i) {
+                int32_t id;
+                uintptr_t d;
+                if (!game::param_row(t, i, id, d)) continue;
+                int32_t m = mem::rdv<int32_t>(d + 8, -1);
+                if (mem::rdv<uint8_t>(d + 0x17) != 4 || m <= 0 || mem::rdv<int32_t>(d) <= 0) continue;
+                uintptr_t mrow = mt.empty() ? 0 : game::param_find(mt[0], m);
+                if (!mrow) continue;
+                int32_t mat = mem::rdv<int32_t>(mrow, -1);
+                hits.push_back({id, {d, m, mrow}, mat});
+                matCount[mat]++;
+            }
+        int32_t best = -1;
+        int bestN = 0;
+        for (auto& kv : matCount)
+            if (kv.second > bestN) { bestN = kv.second; best = kv.first; }
+        for (auto& h : hits) {
+            if (h.mat != best) continue;
+            s_dupeRows.push_back(h.r);
+            if (!s_dupeMin || h.id < s_dupeMin) s_dupeMin = h.id;
+            if (h.id > s_dupeMax) s_dupeMax = h.id;
+        }
+        s_dupeByNum = !s_dupeRows.empty();
+        for (auto& r : s_dupeRows)
+            if (mem::rdv<int8_t>(r.mrow + 0x1C) != 1) s_dupeByNum = false;
+        elog("Duplication de cendres : %zu lignes (%d-%d), materiau %d, methode %s", s_dupeRows.size(), s_dupeMin, s_dupeMax, best, s_dupeByNum ? "quantite" : "materiau retire");
+    }
+    st.dupeRows = (int)s_dupeRows.size();
+    bool want = g_cfg.freeAshDupe && !s_dupeRows.empty();
+    if (want != s_dupeApplied) {
+        for (auto& r : s_dupeRows) {
+            if (s_dupeByNum) mem::wr(r.mrow + 0x1C, (int8_t)(want ? 0 : 1));
+            else mem::wr(r.shop + 8, want ? (int32_t)-1 : r.mtrl);
+        }
+        s_dupeApplied = want;
+        elog("Duplication gratuite %s", want ? "activee" : "desactivee");
+    }
+    st.dupeFree = s_dupeApplied;
+}
+
+static std::mutex s_bm;
+static std::string s_buildName;
+static builds::Build s_jobBuild;
+static builds::Result s_jobRes;
+static std::atomic<int> s_jobState{0};
+static int s_jobPhase = 0;
+static double s_jobT = 0, s_jobNext = 0;
+
+static void job_run() {
+    if (s_jobPhase == 1) builds::apply_gear(s_jobBuild, g_cfg.buildStats, s_jobRes);
+    else builds::apply_rest(s_jobBuild, s_jobRes);
+}
+
+void frame_hook() {
+    int exp = 1;
+    if (!s_jobState.compare_exchange_strong(exp, 2)) return;
+    job_run();
+    s_jobState = 3;
+}
+
+void build_save(const std::string& name, int overwrite) {
+    {
+        std::lock_guard<std::mutex> lk(s_bm);
+        s_buildName = name;
+    }
+    post(Act::BuildSave, (uint32_t)overwrite);
+}
+
+static void act_build_save(uint32_t arg) {
+    builds::Build b;
+    if (!game::player() || !builds::capture(b)) { msg("Build : charge ta partie d'abord"); return; }
+    {
+        std::lock_guard<std::mutex> lk(s_bm);
+        b.name = s_buildName;
+    }
+    for (auto& c : b.name)
+        if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+    builds::Build old;
+    if (arg != 0xFFFFFFFF && builds::get(arg, old)) {
+        if (b.name.empty()) b.name = old.name;
+        builds::overwrite(arg, b);
+        msg("Build \xC2\xAB " + b.name + " \xC2\xBB mis \xC3\xA0 jour");
+    } else {
+        if (b.name.empty()) b.name = "Build " + std::to_string(builds::count() + 1);
+        builds::add(b);
+        msg("Build \xC2\xAB " + b.name + " \xC2\xBB enregistr\xC3\xA9");
+    }
+}
+
+static void act_build_load(uint32_t arg) {
+    if (s_jobPhase) { msg("Build : chargement d\xC3\xA9j\xC3\xA0 en cours"); return; }
+    if (!game::player()) { msg("Build : charge ta partie d'abord"); return; }
+    if (!builds::ready()) { msg("Build : fonctions d'\xC3\xA9quipement du jeu introuvables"); return; }
+    if (!builds::get(arg, s_jobBuild)) return;
+    s_jobRes = {};
+    s_jobPhase = 1;
+    s_jobT = now();
+    s_jobState = 1;
+}
+
+static void tick_builds(double t, Status& st) {
+    static bool loaded = false;
+    if (!loaded) { loaded = true; builds::load_file(); }
+    static double readyT = -100;
+    if (st.player && !st.buildsReady && t - readyT > 5.0) { readyT = t; st.buildsReady = builds::ready(); }
+    st.buildBusy = s_jobPhase != 0;
+    if (!s_jobPhase) return;
+    int state = s_jobState.load();
+    if (state == 0 && t >= s_jobNext) { s_jobT = t; s_jobState = 1; return; }
+    if (state == 1 && t - s_jobT > 1.0) { frame_hook(); state = s_jobState.load(); }
+    if (state != 3) return;
+    if (s_jobPhase == 1 && !s_jobRes.failed) {
+        s_jobPhase = 2;
+        s_jobNext = t + 0.4;
+        s_jobState = 0;
+        return;
+    }
+    s_jobPhase = 0;
+    s_jobState = 0;
+    if (s_jobRes.failed) { msg("Build : \xC3\xA9" "chec du chargement"); return; }
+    std::string m = "Build \xC2\xAB " + s_jobBuild.name + " \xC2\xBB charg\xC3\xA9 : " + std::to_string(s_jobRes.equipped) + " objet(s), " + std::to_string(s_jobRes.spells) + " sort(s)";
+    int miss = s_jobRes.missing + s_jobRes.spellsMissing;
+    if (miss) m += ", " + std::to_string(miss) + " absent(s) de l'inventaire";
+    msg(m);
+}
 
 static bool greyoll_reset() {
     bool ok = game::flag_set(GREYOLL_FLAG, false);
@@ -290,7 +435,7 @@ static void pump_delayed() {
     for (auto& d : due) post(d.first, d.second);
 }
 
-static void on_grace_pick(int which) { post_delayed(Act::OpenMenu, which == 1 ? 3u : 0u, 1.2); }
+static void on_grace_pick(int which) { post_delayed(Act::OpenMenu, which == 1 ? 4u : 0u, 1.2); }
 
 static void act_bloodboil() {
     if (!game::player()) { msg("Charge ta partie d'abord"); return; }
@@ -341,6 +486,9 @@ static void process_actions() {
         case Act::RefreshInv: refresh_weapons(); break;
         case Act::SaveCfg: cfg_save(); break;
         case Act::GiveBloodboil: act_bloodboil(); break;
+        case Act::BuildSave: act_build_save(a.second); break;
+        case Act::BuildLoad: act_build_load(a.second); break;
+        case Act::BuildDelete: builds::remove(a.second); msg("Build supprim\xC3\xA9"); break;
         case Act::ResetFlail:
             s_flailAnims.clear();
             flail_save();
@@ -354,9 +502,9 @@ static void process_actions() {
         case Act::ResetCast:
             s_castAnims.clear();
             s_aowBuff.clear();
-            s_aowNo.clear();
+            s_aowCand.clear();
+            s_aowStrike.clear();
             g_cfg.aowBuff.clear();
-            g_cfg.aowNo.clear();
             s_castNo.clear();
             cast_save();
             msg("Sorts appris effac\xC3\xA9s");
@@ -365,7 +513,12 @@ static void process_actions() {
             auto& m = game_menus();
             if (a.second >= m.size()) break;
             if (!game::player()) { msg("Charge ta partie d'abord"); break; }
-            if (!game::ezstate_event(m[a.second].event, m[a.second].args)) msg("Menus : fonction du jeu introuvable");
+            std::vector<int> args = m[a.second].args;
+            if (m[a.second].event == 146) {
+                if (s_dupeMin <= 0) { msg("Duplication : liste des cendres introuvable dans les param\xC3\xA8tres"); break; }
+                args = {0, s_dupeMin, s_dupeMax};
+            }
+            if (!game::ezstate_event(m[a.second].event, args)) msg("Menus : fonction du jeu introuvable");
             break;
         }
         }
@@ -610,51 +763,65 @@ static bool selected_spell_is_buff() {
 static int s_aowPend = -1;
 static double s_aowPendT = 0;
 static float s_aowPos[3], s_aowMaxDisp = 0;
-static std::vector<std::pair<int, float>> s_aowFx;
-
 static bool is_flail_spin(int anim) { return anim == 625040050 || anim == 625040051 || anim == 625040053; }
 
 static void aow_save() {
     g_cfg.aowBuff = join_set(s_aowBuff);
-    g_cfg.aowNo = join_set(s_aowNo);
     cfg_save();
+}
+
+static int gem_class(uint32_t gem) {
+    if (gem == 0 || gem == 0xFFFFFFFF || gem >= 100000) return -1;
+    if ((gem >= 60000 && gem < 60800) || gem == 65000 || gem == 65100 || gem == 65400 || (gem >= 70000 && gem < 70300)) return 1;
+    return 0;
 }
 
 static void tick_cast(uintptr_t pl, Status& st) {
     if (!s_castLoaded) {
         s_castLoaded = true;
         parse_set(g_cfg.aowBuff, s_aowBuff);
-        s_aowBuff.insert(733040000);
-        parse_set(g_cfg.aowNo, s_aowNo);
     }
     st.castLearned = 0;
     st.castAttack = (int)s_aowBuff.size();
     if (!pl) { s_castActive = false; return; }
     double t = now();
+    static uint32_t gR = 0xFFFFFFFF, gL = 0xFFFFFFFF;
+    static double gemT = -10;
+    if (t - gemT > 0.25) {
+        gemT = t;
+        uint32_t r = game::hand_gem(true), l = game::hand_gem(false);
+        if (r != gR || l != gL) elog("Cendres en main : droite %d, gauche %d", (int)r, (int)l);
+        gR = r;
+        gL = l;
+    }
+    st.gemR = gR;
+    st.gemL = gL;
+    int cR = gem_class(gR), cL = gem_class(gL);
+    int byGem = -1;
+    if (cR == 1 && cL != 0) byGem = 1;
+    else if (cR == 0 && cL != 1) byGem = 0;
     int q[10];
     int qn = game::anim_queue(pl, q);
     bool spellAnim = false, physick = false;
-    int aowAnim = -1, buffAnim = -1;
+    int aowAnim = -1;
     for (int i = 0; i < qn; ++i) {
         int pre = q[i] / 1000000;
         if (pre >= 400 && pre < 500) spellAnim = true;
         if (q[i] % 1000000 == 50210) physick = true;
-        if (s_aowBuff.count(q[i])) buffAnim = q[i];
-        else if (pre >= 600 && pre < 900 && !is_flail_spin(q[i])) aowAnim = q[i];
+        if (pre >= 600 && pre < 900 && !is_flail_spin(q[i])) aowAnim = q[i];
     }
-    int anim = buffAnim > 0 ? buffAnim : aowAnim;
+    bool certified = aowAnim == 733040000;
     if (aowAnim > 0 && aowAnim != s_animCur) {
         s_animCur = aowAnim;
-        s_animCurT = t;
-        if (s_aowPend < 0) {
+        if (s_aowPend < 0 && byGem < 0 && !certified) {
             s_aowPend = aowAnim;
             s_aowPendT = t;
             s_aowMaxDisp = 0;
             game::chr_pos(pl, s_aowPos);
-            game::speffects(pl, s_aowFx);
         }
     }
-    if (aowAnim <= 0 && buffAnim <= 0 && t - s_animCurT > 1.0) s_animCur = -1;
+    if (aowAnim > 0) s_animCurT = t;
+    else if (t - s_animCurT > 0.6) s_animCur = -1;
     if (s_aowPend > 0) {
         float p[3];
         if (game::chr_pos(pl, p)) {
@@ -663,41 +830,35 @@ static void tick_cast(uintptr_t pl, Status& st) {
         }
     }
     if (s_aowPend > 0 && t - s_aowPendT > 3.0) {
-        std::vector<std::pair<int, float>> fx;
-        game::speffects(pl, fx);
-        bool buff = false;
-        for (auto& e : fx) {
-            if (e.second >= 0.f && (e.second < 5.f || e.second > 900.f)) continue;
-            bool known = false;
-            for (auto& o : s_aowFx)
-                if (o.first == e.first) { known = true; break; }
-            if (!known) { buff = true; break; }
-        }
-        if (s_aowMaxDisp > 3.f) buff = false;
-        if (buff) { s_aowBuff.insert(s_aowPend); s_aowNo.erase(s_aowPend); }
-        else s_aowNo.insert(s_aowPend);
-        elog("Cendre de guerre anim %d : %s (deplacement %.1f m)", s_aowPend, buff ? "buff" : "attaque", s_aowMaxDisp);
-        s_aowPend = -1;
-        aow_save();
-    }
-    static int aowRun = -1;
-    static float aowRunPos[3];
-    if (anim > 0 && s_aowBuff.count(anim)) {
-        float p[3];
-        if (aowRun != anim) { aowRun = anim; game::chr_pos(pl, aowRunPos); }
-        else if (game::chr_pos(pl, p)) {
-            float dx = p[0] - aowRunPos[0], dz = p[2] - aowRunPos[2];
-            if (dx * dx + dz * dz > 4.f * 4.f) {
-                s_aowBuff.erase(anim);
-                s_aowNo.insert(anim);
-                aow_save();
-                elog("Cendre de guerre anim %d retiree des buffs (deplacement)", anim);
+        std::vector<game::SpFx> fx;
+        game::speffects2(pl, fx);
+        float win = (float)(t - s_aowPendT) + 0.5f;
+        std::vector<int> fresh;
+        if (s_aowMaxDisp <= 3.f)
+            for (auto& e : fx) {
+                if (e.a < 0.f || e.b < 0.f) continue;
+                float lo = std::min(e.a, e.b), hi = std::max(e.a, e.b);
+                if (hi < 5.f || hi > 900.f) continue;
+                if (hi - lo <= win || lo <= win) fresh.push_back(e.id);
             }
+        bool same = false;
+        for (int id : s_aowCand[s_aowPend])
+            for (int f : fresh)
+                if (id == f) same = true;
+        bool was = s_aowBuff.count(s_aowPend) != 0;
+        if (same) {
+            s_aowStrike[s_aowPend] = 0;
+            if (s_aowBuff.insert(s_aowPend).second) aow_save();
+        } else if (fresh.empty() && was && ++s_aowStrike[s_aowPend] >= 2) {
+            s_aowBuff.erase(s_aowPend);
+            aow_save();
         }
-    } else {
-        aowRun = -1;
+        elog("Cendre anim %d : %zu effet(s) frais, deplacement %.1f m -> %s", s_aowPend, fresh.size(), s_aowMaxDisp, s_aowBuff.count(s_aowPend) ? "buff" : "pas buff");
+        s_aowCand[s_aowPend] = fresh;
+        s_aowPend = -1;
     }
-    bool want = g_cfg.fastCast && ((spellAnim && selected_spell_is_buff()) || buffAnim > 0 || physick);
+    bool aowBuffNow = aowAnim > 0 && (certified || byGem == 1 || (byGem < 0 && s_aowBuff.count(aowAnim)));
+    bool want = g_cfg.fastCast && ((spellAnim && selected_spell_is_buff()) || aowBuffNow || physick);
     if (want) {
         game::set_anim_speed(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f));
         s_castActive = true;
@@ -1156,6 +1317,8 @@ static DWORD WINAPI tick_thread(void*) {
                 move_comp(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f), s_castActive);
             }
             tick_weight(pl, st);
+            tick_dupe(st);
+            tick_builds(t, st);
 
             st.names = game::names_ready();
             if (pl && g_menuOpen && g_wantWeapons && t - lastWeps > 1.5) {

@@ -1459,4 +1459,46 @@ bool speffect_remove(uintptr_t chr, int id) {
     return true;
 }
 
+void speffects2(uintptr_t chr, std::vector<SpFx>& out) {
+    out.clear();
+    uintptr_t se = ptr(chr + 0x178);
+    uintptr_t e = se ? ptr(se + 8) : 0;
+    for (int i = 0; e && i < 256; ++i) {
+        out.push_back({rdv<int32_t>(e + 8, -1), rdv<float>(e + 0x40, -1.f), rdv<float>(e + 0x48, -1.f)});
+        e = ptr(e + 0x30);
+    }
+}
+
+static uintptr_t s_gaitemImp = 0;
+static bool s_gaitemTried = false;
+
+static uintptr_t gaitem_obj(uint32_t h) {
+    if (!s_gaitemTried) {
+        s_gaitemTried = true;
+        uintptr_t a = aob("48 8B 0D ?? ?? ?? ?? 4C 8B C6 48 8D 54");
+        s_gaitemImp = a ? rip(a, 3, 7) : 0;
+        if (!s_gaitemImp) s_gaitemImp = singleton("CSGaitem");
+        elog("CSGaitemImp %s -> %p", s_gaitemImp ? "ok" : "INTROUVABLE", (void*)s_gaitemImp);
+    }
+    uintptr_t imp = ptr(s_gaitemImp);
+    if (!imp || h == 0 || h == 0xFFFFFFFF) return 0;
+    return ptr(imp + 8 + (uintptr_t)(h & 0xFFFF) * 8);
+}
+
+uint32_t hand_gem(bool right) {
+    uintptr_t P = pgd();
+    if (!P) return 0xFFFFFFFF;
+    int slot = rdv<int32_t>(P + (right ? 0x32C : 0x328), 0);
+    if (slot < 0 || slot > 2) slot = 0;
+    uint32_t h = rdv<uint32_t>(P + (right ? 0x344 : 0x340) + slot * 8, 0);
+    uintptr_t w = gaitem_obj(h);
+    if (!w) return 0xFFFFFFFF;
+    uint32_t gh = rdv<uint32_t>(w + 0x28, 0);
+    if (gh == 0 || gh == 0xFFFFFFFF) return 0;
+    uintptr_t gobj = gaitem_obj(gh);
+    uint32_t id = gobj ? rdv<uint32_t>(gobj + 0xC, 0) : 0;
+    if ((id >> 28) != 0x8) return 0xFFFFFFFF;
+    return id & 0x0FFFFFFF;
+}
+
 }

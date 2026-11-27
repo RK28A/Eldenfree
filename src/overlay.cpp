@@ -448,6 +448,7 @@ static DIDataFn di_data_orig(IDirectInputDevice8W* dev) {
 
 static HRESULT STDMETHODCALLTYPE hk_di_state(IDirectInputDevice8W* dev, DWORD cb, LPVOID data) {
     HRESULT hr = di_state_orig(dev)(dev, cb, data);
+    feat::frame_hook();
     if (g_kbBlock && !(GetAsyncKeyState(VK_ESCAPE) & 0x8000)) g_kbBlock = false;
     bool block = feat::g_menuOpen || (g_kbBlock && di_type(dev) == DI8DEVTYPE_KEYBOARD);
     if (block && SUCCEEDED(hr) && data) {
@@ -524,6 +525,7 @@ static void pad_capture(XINPUT_STATE* st) {
 
 template <int N> static DWORD WINAPI hk_xi(DWORD idx, XINPUT_STATE* st) {
     DWORD r = oXI[N].second(idx, st);
+    feat::frame_hook();
     if (r == ERROR_SUCCESS && st) {
         pad_capture(st);
         if (feat::g_menuOpen || g_padBlock) memset(&st->Gamepad, 0, sizeof(st->Gamepad));

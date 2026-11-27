@@ -32,6 +32,8 @@ struct Config {
     std::string castAnimsNo;
     std::string aowBuff;
     std::string aowNo;
+    bool freeAshDupe = false;
+    bool buildStats = true;
     bool graceMenu = false;
     int jumpKey = 0x46;
     std::string pauseUi;
