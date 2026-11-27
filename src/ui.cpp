@@ -484,6 +484,52 @@ static void tab_cosmetic(const feat::Status& st) {
     card_begin("look", "Apparence de l'armure", "Change seulement ce qu'on voit : stats, poids et inventaire restent ceux de l'armure r\xC3\xA9" "ellement port\xC3\xA9" "e. Remis automatiquement \xC3\xA0 chaque lancement.");
     right_pill(ls == 1 ? (g_cfg.lookOn ? "Actif" : "Inactif") : ls == 0 ? "Initialisation" : "Indisponible", ls == 1 ? (g_cfg.lookOn ? C_OK : C_DIM) : ls == 0 ? C_WARN : C_BAD);
     if (toggle("Apparence personnalis\xC3\xA9" "e", &g_cfg.lookOn)) save();
+    {
+        static char sfilter[48] = "";
+        bool can = ls == 1 && looks::catalog_ready();
+        if (primary("Choisir un ensemble complet\xE2\x80\xA6", can)) {
+            sfilter[0] = 0;
+            ImGui::OpenPopup("fullset");
+        }
+        ImGui::SetNextWindowSize(ImVec2(std::min(620.f, io.DisplaySize.x * 0.5f), std::min(720.f, io.DisplaySize.y * 0.75f)));
+        if (ImGui::BeginPopup("fullset")) {
+            ImGui::PushFont(g_title);
+            ImGui::TextUnformatted("Ensembles complets");
+            ImGui::PopFont();
+            ImGui::PushItemWidth(-1);
+            ImGui::InputTextWithHint("##sf", "Rechercher un ensemble\xE2\x80\xA6", sfilter, sizeof(sfilter));
+            ImGui::PopItemWidth();
+            ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.f, 0.5f));
+            if (ImGui::Selectable("Tout remettre en r\xC3\xA9" "el", false, 0, ImVec2(0, 38))) {
+                for (int c = 0; c < 4; ++c) g_cfg.look[c] = 0;
+                save();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::Separator();
+            ImGui::BeginChild("slist", ImVec2(0, 0));
+            std::string f = sfilter;
+            for (auto& ch : f) ch = (char)tolower((unsigned char)ch);
+            auto& fs = looks::full_sets();
+            for (size_t i = 0; i < fs.size(); ++i) {
+                if (!f.empty()) {
+                    std::string n = fs[i].name;
+                    for (auto& ch : n) ch = (char)tolower((unsigned char)ch);
+                    if (n.find(f) == std::string::npos) continue;
+                }
+                ImGui::PushID((int)i);
+                char lab[160];
+                snprintf(lab, sizeof(lab), "%s  (%d pi\xC3\xA8" "ces)", fs[i].name.c_str(), fs[i].pieces);
+                if (ImGui::Selectable(lab, false, 0, ImVec2(0, 38))) {
+                    looks::apply_full_set(i);
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleVar();
+            ImGui::EndPopup();
+        }
+    }
     if (ls != 1 || !looks::catalog_ready()) {
         std::string stx = "\xC3\x89tat : " + looks::status_text();
         hint(stx.c_str());

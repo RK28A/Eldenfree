@@ -19,6 +19,7 @@ static const uint32_t kBare[4] = {10000, 10100, 10200, 10300};
 static std::atomic<int> s_state{0};
 static std::atomic<bool> s_catReady{false};
 static std::vector<Piece> s_cat[4];
+static std::vector<FullSet> s_full;
 static std::unordered_map<uint32_t, std::string> s_names;
 static std::mutex s_em;
 static std::string s_err = "initialisation";
@@ -44,6 +45,42 @@ static uintptr_t s_lastPl = 0;
 int state() { return s_state.load(); }
 bool catalog_ready() { return s_catReady.load(); }
 const std::vector<Piece>& catalog(int cat) { return s_cat[cat & 3]; }
+const std::vector<FullSet>& full_sets() { return s_full; }
+
+void apply_full_set(size_t i) {
+    if (!s_catReady.load() || i >= s_full.size()) return;
+    for (int c = 0; c < 4; ++c) g_cfg.look[c] = s_full[i].ids[c];
+    g_cfg.lookOn = true;
+    cfg_save();
+}
+
+static std::vector<std::string> words(const std::string& s) {
+    std::vector<std::string> w;
+    size_t i = 0;
+    while (i < s.size()) {
+        size_t k = s.find(' ', i);
+        if (k == std::string::npos) k = s.size();
+        if (k > i) w.push_back(s.substr(i, k - i));
+        i = k + 1;
+    }
+    return w;
+}
+
+static std::string set_name(const std::vector<std::string>& names) {
+    std::vector<std::vector<std::string>> ws;
+    for (auto& n : names) ws.push_back(words(n));
+    size_t common = 0;
+    for (;; ++common) {
+        bool ok = true;
+        for (auto& w : ws)
+            if (w.size() <= common + 1 || w[w.size() - 1 - common] != ws[0][ws[0].size() - 1 - common]) { ok = false; break; }
+        if (!ok) break;
+    }
+    if (common == 0) return names[0];
+    std::string r = "Ensemble";
+    for (size_t k = ws[0].size() - common; k < ws[0].size(); ++k) r += " " + ws[0][k];
+    return r;
+}
 
 std::string status_text() {
     std::lock_guard<std::mutex> lk(s_em);
@@ -292,10 +329,31 @@ static void build_catalog() {
         s_err = "noms d'armures introuvables (" + std::to_string(ids.size()) + " armures, " + std::to_string(nAll) + " FMG connus, " + std::to_string(nf) + " textes candidats, " + std::to_string(total) + " noms)";
         return;
     }
+    {
+        std::unordered_map<uint32_t, FullSet> groups;
+        for (int c = 0; c < 4; ++c)
+            for (auto& p : cat[c]) {
+                if ((int)((p.id / 100) % 10) != c) continue;
+                auto& g = groups[p.id - (uint32_t)c * 100];
+                if (!g.ids[c]) { g.ids[c] = p.id; g.pieces++; }
+            }
+        std::vector<FullSet> full;
+        for (auto& kv : groups) {
+            FullSet g = kv.second;
+            if (g.pieces < 2) continue;
+            std::vector<std::string> pn;
+            for (int c : {1, 0, 2, 3})
+                if (g.ids[c]) pn.push_back(names[g.ids[c]]);
+            g.name = set_name(pn);
+            full.push_back(g);
+        }
+        std::sort(full.begin(), full.end(), [](const FullSet& x, const FullSet& y) { return x.name < y.name; });
+        s_full = std::move(full);
+    }
     for (int c = 0; c < 4; ++c) s_cat[c] = std::move(cat[c]);
     s_names = std::move(names);
     s_catReady = true;
-    elog("Cosmetique : %zu pieces d'armure listees (%zu / %zu / %zu / %zu)", total, s_cat[0].size(), s_cat[1].size(), s_cat[2].size(), s_cat[3].size());
+    elog("Cosmetique : %zu pieces d'armure listees (%zu / %zu / %zu / %zu), %zu ensembles", total, s_cat[0].size(), s_cat[1].size(), s_cat[2].size(), s_cat[3].size(), s_full.size());
 }
 
 static void restore_rows() {
