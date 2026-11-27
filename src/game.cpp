@@ -1501,4 +1501,24 @@ uint32_t hand_gem(bool right) {
     return id & 0x0FFFFFFF;
 }
 
+int inv_qty(uint32_t itemId, int setTo) {
+    uintptr_t P = pgd();
+    if (!P) return -1;
+    uintptr_t head = ptr(P + 0x418);
+    uint32_t len = rdv<uint32_t>(P + 0x420), cap = rdv<uint32_t>(P + 0x414);
+    if (!head || !cap || cap > 8192 || len > cap) return -1;
+    uint32_t seen = 0;
+    for (uint32_t i = 0; i < cap && seen < len; ++i) {
+        uint32_t e[3];
+        uintptr_t a = head + (uintptr_t)i * 0x18;
+        if (!read_raw(a, e, 12)) return -1;
+        if (e[0] == 0 || e[0] == 0xFFFFFFFF || e[1] == 0xFFFFFFFF) continue;
+        ++seen;
+        if (e[1] != itemId) continue;
+        if (setTo > 0 && e[2] >= 1 && e[2] <= 9999) wr(a + 8, (uint32_t)setTo);
+        return (int)e[2];
+    }
+    return 0;
+}
+
 }

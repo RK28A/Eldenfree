@@ -294,6 +294,8 @@ static void tab_world(const feat::Status& st) {
 
     card_begin("bells", "Table ronde  \xC2\xB7  S\xC5\x93urs jumelles", "Les 9 cloches de mineur (pierres de forge [1-4] + pierres sombres [1-5]), comme si tu les avais donn\xC3\xA9" "es.");
     if (primary("D\xC3\xA9" "bloquer la vente des pierres de forge", st.flags)) feat::post(feat::Act::UnlockBells);
+    if (ImGui::Button("Mettre toutes les pierres de forge \xC3\xA0 99", ImVec2(-1, 0))) feat::post(feat::Act::GiveStones);
+    hint("Pierres de forge [1-8], sombres [1-9] et les deux pierres de dragon ancien (pour +25 et +10).");
     card_end();
 }
 

@@ -180,6 +180,40 @@ static void act_bells() {
     msg("Cloches de forge : " + std::to_string(ok) + "/" + std::to_string(flags.size()) + " flags activés (Sœurs jumelles)");
 }
 
+static void act_stones() {
+    if (!game::player()) { msg("Charge ta partie d'abord"); return; }
+    auto gt = game::param_tables("EQUIP_PARAM_GOODS_ST");
+    if (gt.empty()) { msg("Pierres de forge : param\xC3\xA8tres pas encore charg\xC3\xA9s"); return; }
+    std::vector<uint32_t> ids;
+    for (uint32_t id = 10100; id <= 10260; ++id) {
+        if (!game::param_find(gt[0], (int32_t)id)) continue;
+        std::wstring n;
+        if (!game::goods_name(id, n)) continue;
+        for (auto& c : n) c = (wchar_t)towlower(c);
+        if (n.find(L"forge") != std::wstring::npos || n.find(L"smithing") != std::wstring::npos) ids.push_back(id);
+    }
+    if (ids.empty())
+        for (uint32_t id : {10100u, 10101u, 10102u, 10103u, 10104u, 10105u, 10106u, 10107u, 10140u, 10160u, 10161u, 10162u, 10163u, 10164u, 10165u, 10166u, 10167u, 10168u, 10200u})
+            if (game::param_find(gt[0], (int32_t)id)) ids.push_back(id);
+    bool canGive = game::g.itemGib && game::g.mapItemMan;
+    int set = 0, given = 0, full = 0, failed = 0;
+    for (uint32_t id : ids) {
+        uint32_t item = 0x40000000u | id;
+        uintptr_t row = game::param_find(gt[0], (int32_t)id);
+        int maxNum = mem::rdv<int16_t>(row + 0x3A);
+        int target = (maxNum > 0 && maxNum < 99) ? maxNum : 99;
+        int held = game::inv_qty(item);
+        if (held >= target) { ++full; continue; }
+        if (held > 0) { game::inv_qty(item, target); ++set; }
+        else if (held == 0 && canGive) { game::give_item(item, target); ++given; }
+        else ++failed;
+    }
+    elog("Pierres de forge : %zu types, %d completes, %d donnees, %d deja au max, %d echec", ids.size(), set, given, full, failed);
+    std::string m = "Pierres de forge \xC3\xA0 99 : " + std::to_string(set + given + full) + "/" + std::to_string(ids.size()) + " types";
+    if (failed) m += " (" + std::to_string(failed) + " impossible(s) \xC3\xA0 donner)";
+    msg(m);
+}
+
 static bool dupable(const game::InvItem& it) {
     if ((it.handle >> 28) != 0x8 || it.id >= 0x10000000) return false;
     if (it.id >= 50000000 && it.id < 54000000) return false;
@@ -482,6 +516,7 @@ static void process_actions() {
         case Act::UnlockMap: break;
         case Act::UnlockGraces: break;
         case Act::UnlockBells: act_bells(); break;
+        case Act::GiveStones: act_stones(); break;
         case Act::DupWeapon: act_dup(a.second); break;
         case Act::RefreshInv: refresh_weapons(); break;
         case Act::SaveCfg: cfg_save(); break;
