@@ -439,6 +439,10 @@ static void tab_player(const feat::Status& st) {
 }
 
 static void tab_plus(const feat::Status& st) {
+    card_begin("bloodboil", "Ar\xC3\xB4me de sang bouillant", "Remplit ton inventaire au maximum autoris\xC3\xA9 par le jeu. Rappuie apr\xC3\xA8s en avoir utilis\xC3\xA9 pour recompl\xC3\xA9ter.");
+    if (primary("Obtenir le maximum", st.itemGib && st.player)) feat::post(feat::Act::GiveBloodboil);
+    card_end();
+
     card_begin("weight", "Charge d'\xC3\xA9quipement", "Augmente ton poids d'\xC3\xA9quipement maximal (roulade l\xC3\xA9g\xC3\xA8re avec des armures lourdes).");
     char b[64];
     snprintf(b, sizeof(b), "%.1f max", st.equipLoad);

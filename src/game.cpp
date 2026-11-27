@@ -1287,4 +1287,28 @@ bool goods_name(uint32_t id, std::wstring& out) {
     return false;
 }
 
+
+uint32_t find_goods(const std::vector<std::wstring>& needles) {
+    uintptr_t repo = ptr(g.msgRepo);
+    uintptr_t table = repo ? ptr(repo + 8) : 0;
+    if (!table) return 0;
+    std::vector<std::wstring> low;
+    for (auto& n : needles) low.push_back(lower(n));
+    uint32_t found = 0;
+    for (int idx : {10, 111, 319, 419}) {
+        uintptr_t f = ptr(table + (uintptr_t)idx * 8);
+        if (!f || !fmg_header(f)) continue;
+        fmg_ids(f, [&](uint32_t id) {
+            if (found) return;
+            std::wstring s;
+            if (!fmg_get(f, id, s)) return;
+            s = lower(s);
+            for (auto& n : low)
+                if (s.find(n) != std::wstring::npos) { found = id; return; }
+        });
+        if (found) break;
+    }
+    return found;
+}
+
 }

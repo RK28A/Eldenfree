@@ -293,6 +293,28 @@ static void pump_delayed() {
 
 static void on_grace_pick(int which) { post_delayed(Act::OpenMenu, which == 1 ? 3u : 0u, 1.2); }
 
+static void act_bloodboil() {
+    if (!game::player()) { msg("Charge ta partie d'abord"); return; }
+    if (!game::g.itemGib || !game::g.mapItemMan) { msg("Fonction d'obtention introuvable"); return; }
+    uint32_t id = game::find_goods({L"sang bouillant", L"bloodboil"});
+    if (!id) { msg("Ar\xC3\xB4me de sang bouillant introuvable dans les textes du jeu"); return; }
+    auto gt = game::param_tables("EQUIP_PARAM_GOODS_ST");
+    uintptr_t row = gt.empty() ? 0 : game::param_find(gt[0], (int32_t)id);
+    if (!row) { msg("Ar\xC3\xB4me : param\xC3\xA8tres introuvables"); return; }
+    int maxNum = mem::rdv<int16_t>(row + 0x3A);
+    if (maxNum <= 0 || maxNum > 999) maxNum = 10;
+    std::vector<game::InvItem> inv;
+    int held = 0;
+    if (game::inventory(inv))
+        for (auto& it : inv)
+            if ((it.id & 0x0FFFFFFF) == id && (it.id >> 28) == 0x4) held += (int)it.qty;
+    int give = maxNum - held;
+    if (give <= 0) { msg("Ar\xC3\xB4mes de sang bouillant : d\xC3\xA9j\xC3\xA0 au maximum (" + std::to_string(held) + "/" + std::to_string(maxNum) + ")"); return; }
+    game::give_item(0x40000000u | id, give);
+    elog("Arome sang bouillant %u : +%d (max %d)", id, give, maxNum);
+    msg("Ar\xC3\xB4mes de sang bouillant : +" + std::to_string(give) + " (" + std::to_string(maxNum) + "/" + std::to_string(maxNum) + ")");
+}
+
 static void process_actions() {
     for (;;) {
         std::pair<Act, uint32_t> a;
@@ -316,6 +338,7 @@ static void process_actions() {
         case Act::DupWeapon: act_dup(a.second); break;
         case Act::RefreshInv: refresh_weapons(); break;
         case Act::SaveCfg: cfg_save(); break;
+        case Act::GiveBloodboil: act_bloodboil(); break;
         case Act::ResetJump:
             s_jLearned.clear();
             s_jCands.clear();

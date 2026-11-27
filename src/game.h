@@ -80,5 +80,6 @@ void names_load();
 bool names_ready();
 std::string weapon_name(uint32_t id);
 bool goods_name(uint32_t id, std::wstring& out);
+uint32_t find_goods(const std::vector<std::wstring>& needles);
 
 }
