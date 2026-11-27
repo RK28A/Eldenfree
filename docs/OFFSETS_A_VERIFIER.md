@@ -243,3 +243,94 @@ Toutes trouvées sur 2.7.2.0 (scan statique, voir `OFFSETS_RESULTATS_2.7.2.0.md`
 | 12.1 | Écritures de code (patchs) | `VirtualProtect` + réécriture si le jeu les efface | ✅ | |
 | 12.2 | Lectures mémoire protégées | gestionnaire d'exceptions vectoriel | ✅ | crash du jeu ? quand ? |
 | 12.3 | Menu Échap / dialogue (ancien bouton) | `CSMenuMan + 90` états UI, `+80 → 180` dialogue (désactivé) | ⚠️ | |
+
+---
+
+## 13. Adresses exactes pour supprimer les bidouilles
+
+Chaque ligne remplace une détection automatique par une adresse fixe. Donne l'**adresse finale** (chaîne d'offsets
+depuis `GameDataMan`, `WorldChrMan` ou `PlayerIns`) et un **exemple de valeur** lue.
+
+| # | À trouver | Indice / où chercher | Remplace | Ta réponse |
+|---|---|---|---|---|
+| 13.1 | Début du tableau d'objets de l'inventaire | TGA `Hero > EquipInventoryData` ; dans fromsoftware-rs : `PGD + 2B0` (EquipGameData) → `equip_inventory_data` → `items_data` → `normal_items_head` | 3.13 | |
+| 13.2 | Nombre d'entrées utilisées (`normal_items_len`) | juste après le pointeur de 13.1 | 3.14 | |
+| 13.3 | Capacité (`normal_items_capacity`) | juste avant le pointeur de 13.1 | 3.14 | |
+| 13.4 | Tableau des objets clés (`key_items_head`) et sa longueur | même structure | 3.13 | |
+| 13.5 | Coffre (`storage`) : pointeur | `PGD + …` après `EquipGameData` et `FaceData` | duplication (pour ne pas compter le coffre) | |
+| 13.6 | EquipMagicData : adresse | TGA `Hero > EquipMagicData` | 3.16 | |
+| 13.7 | Emplacement de sort sélectionné | TGA `EquipMagicData` → `selected_slot` | 3.16 | |
+| 13.8 | ID du sort sélectionné (exemple avec un buff) | | 11.1 | |
+| 13.9 | EquipItemData : emplacement rapide sélectionné | TGA `Hero > EquipItemData` | fiole merveilleuse | |
+| 13.10 | Poignée GaItem de l'arme main droite | TGA `ChrAsm` (gaitem_handles) | identification de la cendre | |
+| 13.11 | Table des GaItems (pour lire la cendre montée sur une arme) | `GameDataMan → 30` (gaitem_game_data) ou TGA `GaItem` | identification de la cendre | |
+| 13.12 | ID de la cendre de guerre montée sur l'arme droite | TGA / CE | 11.3 (bloquer par nom) | |
+| 13.13 | ID de la compétence (SwordArts) en cours d'exécution, s'il existe un champ | cherche une valeur qui change quand tu lances une cendre (ChrIns, module comportement `… → 190 → 28`) | 11.3 | |
+| 13.14 | Charge d'équipement **actuelle** (poids porté) | `PGD + …` près de `98C` (float) | 11.9 | |
+| 13.15 | Charge max **réellement utilisée** par le jeu pour la roulade | compare avant/après le talisman de charge | 11.9 | |
+| 13.16 | Vitesse verticale de Torrent | `Torrent → 190 → 68 → 98` (proxy Havok) → cherche un float qui vaut la vitesse de chute | 9.7 | |
+| 13.17 | Vitesse verticale du joueur à pied | même méthode sur `PlayerIns` | chute | |
+| 13.18 | Flag « double saut déjà fait » de Torrent | cherche un byte qui passe à 1 au double saut et revient à 0 à l'atterrissage (`Torrent → 190 → E8 …`, `PlayerIns → 190 → E8 …`) | saut infini | |
+| 13.19 | Orientation de Torrent (angle) | `Torrent → 190 → 68 → 50` (quaternion x, y, z, w) : valeurs face au nord / à l'est | 9.9 | |
+| 13.20 | Angles de la caméra (lacet / tangage) | `WorldChrMan → 1ECF0` (ChrCam) | 9.10 | |
+| 13.21 | Vitesse réelle de galop de Torrent (m/s) | mesure la distance parcourue en 1 s | 9.11 | |
+| 13.22 | PV de Torrent | `Torrent → 190 → 0 → 138` | chute à cheval | |
+
+## 14. Animations (IDs)
+
+Si TGA ou CE affiche l'ID d'animation courant (`PlayerIns → 190 → 18` : file à `+20`, index `+C4`), note les ID suivants.
+
+| # | Animation | Ta réponse (ID) |
+|---|---|---|
+| 14.1 | Debout immobile | |
+| 14.2 | Marche / course / sprint | |
+| 14.3 | Lancer un sort de buff (début + fin) | |
+| 14.4 | Lancer un sort d'attaque | |
+| 14.5 | Cendre de buff (ex. Hurlement) | |
+| 14.6 | Cendre d'attaque (ex. le salto + coup) | |
+| 14.7 | Rotation du fléau (début, boucle, fin) | |
+| 14.8 | Boire une fiole merveilleuse | |
+| 14.9 | Boire une fiole de PV | |
+| 14.10 | Torrent : saut, double saut, chute, atterrissage | |
+
+## 15. Effets (SpEffect)
+
+| # | Élément | Où | Ta réponse |
+|---|---|---|---|
+| 15.1 | ID de l'effet du talisman de charge (Jarre géante) | TGA `Hero > SpecialEffect` avec le talisman équipé | |
+| 15.2 | ID de l'effet de l'Arôme de sang bouillant | même méthode après utilisation | |
+| 15.3 | Effets ajoutés par une cendre de buff (ID + durée) | TGA `SpecialEffect` juste après la cendre | |
+| 15.4 | Effets ajoutés par une cendre d'attaque (ID + durée) | idem | |
+| 15.5 | Effets ajoutés par la fiole merveilleuse | idem | |
+| 15.6 | Structure d'une entrée d'effet : ID `+8`, suivant `+30`, durée totale `+48`, temps restant `+40` | à confirmer | |
+
+## 16. Menus et dialogues
+
+| # | Élément | Où | Ta réponse |
+|---|---|---|---|
+| 16.1 | `CSMenuMan` : adresse | singleton (TGA `CSMenuMan`) | |
+| 16.2 | Index de l'élément d'interface « menu Échap » | `CSMenuMan + 90` (tableau d'octets, bit 1 = visible) : quel index passe à visible quand tu ouvres le menu ? | |
+| 16.3 | Index « menu de grâce » | même tableau, en t'asseyant à une grâce | |
+| 16.4 | ID de dialogue de la grâce (talk id) | `CSMenuMan → 80 → 180` quand tu es assis | |
+| 16.5 | Menu de renforcement ouvert par TGA : affiche-t-il tes armes ? | TGA `Npc Menus > Misc > Blacksmith` | |
+| 16.6 | Menu ouvert actuellement (type) | `… NpcMenuState current_open_menu` si trouvé | |
+
+## 17. Grâces : redécouverte
+
+| # | Test | Ta réponse |
+|---|---|---|
+| 17.1 | Découvre une grâce neuve : quels flags changent ? (TGA `Event Flags` → recherche des flags qui passent à 1) | |
+| 17.2 | Y a-t-il un flag dans la plage `1xxxxxxxxx` (carte locale) qui change aussi ? | |
+| 17.3 | Après reverrouillage (interrupteur EldenFree) + rechargement : la grâce redevient-elle « éteinte » ? | |
+
+## 18. Pour de futures fonctions (si tu as le temps)
+
+| # | Élément | Où | Ta réponse |
+|---|---|---|---|
+| 18.1 | Niveau et attributs (vigueur…arcane) | `PGD + 3C … 58`, niveau `+68` | |
+| 18.2 | Endurance actuelle / max | `Modules → 0 → 154 / 158` | |
+| 18.3 | PC actuels / max dans le module | `Modules → 0 → 148 / 14C` | |
+| 18.4 | Résistances (poison, saignement…) | `PGD + 78 …` | |
+| 18.5 | Points de la Fiole (nombre de charges) | TGA `Hero > EquipItemData` | |
+| 18.6 | Météo / heure du jeu | TGA `WorldAreaTime` | |
+| 18.7 | Position de la dernière grâce utilisée | TGA | |
