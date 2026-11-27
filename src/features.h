@@ -59,6 +59,8 @@ extern std::atomic<bool> g_menuOpen;
 extern std::atomic<bool> g_wantWeapons;
 extern std::atomic<bool> g_gameMenu;
 extern std::atomic<bool> g_fromGameMenu;
+extern std::atomic<double> g_cosPreviewT;
+extern std::atomic<float> g_cosYaw;
 
 void start();
 void frame_hook();

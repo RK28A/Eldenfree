@@ -14,16 +14,20 @@ namespace looks {
 
 using mem::rdv;
 
-static const size_t kProtSize = 0x1A0, kVfxSize = 0xA4, kSpSize = 0x390;
 static const uint32_t kBare[4] = {10000, 10100, 10200, 10300};
 
 static std::atomic<int> s_state{0};
 static std::atomic<bool> s_catReady{false};
 static std::vector<Piece> s_cat[4];
 static std::unordered_map<uint32_t, std::string> s_names;
+static std::mutex s_em;
+static std::string s_err = "initialisation";
 
 static uintptr_t s_prot = 0, s_vfx = 0, s_sp = 0;
-static int s_vfxId[2] = {0, 0}, s_spId[2] = {0, 0};
+static size_t s_protSize = 0, s_vfxSize = 0, s_spSize = 0;
+static int s_catOff = 0xD6, s_tpOff = 0x20;
+static int s_vfxId[2] = {0, 0}, s_spId[2] = {0, 0}, s_spRef[2] = {0, 0};
+static bool s_headClearFull = false;
 static uintptr_t s_vfxRow[2] = {0, 0}, s_spRow[2] = {0, 0};
 static std::vector<uint8_t> s_vfxOrig[2], s_spOrig[2], s_spTemplate;
 static uint32_t s_carrier = 0;
@@ -41,119 +45,211 @@ int state() { return s_state.load(); }
 bool catalog_ready() { return s_catReady.load(); }
 const std::vector<Piece>& catalog(int cat) { return s_cat[cat & 3]; }
 
+std::string status_text() {
+    std::lock_guard<std::mutex> lk(s_em);
+    return s_err;
+}
+
+static bool fail(const std::string& m) {
+    elog("Cosmetique : %s", m.c_str());
+    std::lock_guard<std::mutex> lk(s_em);
+    s_err = m;
+    return false;
+}
+
 std::string piece_name(uint32_t id) {
     if (!s_catReady.load()) return "";
     auto it = s_names.find(id);
     return it == s_names.end() ? "" : it->second;
 }
 
-static bool refs_vfx(uintptr_t sp, const std::vector<int>& ids) {
-    static const int offs[8] = {0x170, 0x18C, 0x190, 0x194, 0x198, 0x19C, 0x1A0, 0x1A4};
-    for (int o : offs) {
-        int v = rdv<int32_t>(sp + o, -1);
-        if (v <= 0) continue;
-        for (int id : ids)
-            if (id == v) return true;
-    }
-    return false;
-}
+static bool prot(uint32_t id) { return id >= 10000 && game::param_find(s_prot, (int32_t)id) != 0; }
+
+struct TV {
+    int id;
+    uintptr_t row;
+    uint32_t tp;
+    bool full, head;
+    int spId, spOff;
+};
 
 static bool init() {
     auto pt = game::param_tables("EQUIP_PARAM_PROTECTOR_ST");
     auto vt = game::param_tables("SP_EFFECT_VFX_PARAM_ST");
     auto st = game::param_tables("SP_EFFECT_PARAM_ST");
-    if (pt.empty() || vt.empty() || st.empty()) { elog("Cosmetique : tables introuvables"); return false; }
+    if (pt.empty() || vt.empty() || st.empty()) return fail("tables de param\xC3\xA8tres introuvables");
     s_prot = pt[0];
     s_vfx = vt[0];
     s_sp = st[0];
-    size_t ps = game::param_row_size(s_prot), vs = game::param_row_size(s_vfx), ss = game::param_row_size(s_sp);
-    if (ps != kProtSize || vs != kVfxSize || ss != kSpSize) {
-        elog("Cosmetique : tailles inattendues (armure 0x%zX, vfx 0x%zX, effet 0x%zX)", ps, vs, ss);
-        return false;
+    s_protSize = game::param_row_size(s_prot);
+    s_vfxSize = game::param_row_size(s_vfx);
+    s_spSize = game::param_row_size(s_sp);
+    elog("Cosmetique : tailles armure 0x%zX, vfx 0x%zX, effet 0x%zX", s_protSize, s_vfxSize, s_spSize);
+    if (s_protSize < 0x100 || s_protSize > 0x400 || s_vfxSize < 0x40 || s_vfxSize > 0x200 || s_spSize < 0x200 || s_spSize > 0x800) return fail("tailles de lignes inattendues");
+    uintptr_t bare[4];
+    for (int c = 0; c < 4; ++c)
+        if (!(bare[c] = game::param_find(s_prot, (int32_t)kBare[c]))) return fail("lignes d'armure de base introuvables");
+    auto catOk = [&](int o) {
+        for (int c = 0; c < 4; ++c)
+            if (rdv<uint8_t>(bare[c] + o, 0xFF) != c) return false;
+        return true;
+    };
+    if (!catOk(s_catOff)) {
+        int found = -1, n = 0;
+        for (int o = 0; o < (int)s_protSize; ++o)
+            if (catOk(o)) { found = o; ++n; }
+        if (n != 1) return fail("cat\xC3\xA9gorie d'armure introuvable (" + std::to_string(n) + " candidats)");
+        s_catOff = found;
     }
-    for (int c = 0; c < 4; ++c) {
-        uintptr_t r = game::param_find(s_prot, (int32_t)kBare[c]);
-        if (!r || rdv<uint8_t>(r + 0xD6, 0xFF) != c) { elog("Cosmetique : categorie d'armure illisible"); return false; }
-    }
-    uintptr_t tpl = game::param_find(s_sp, 310320);
-    if (!tpl) { elog("Cosmetique : effet modele introuvable"); return false; }
-    s_spTemplate.resize(kSpSize);
-    mem::read_raw(tpl, s_spTemplate.data(), kSpSize);
-    float one = 1.f, perm = -1.f;
-    int32_t none = -1;
-    uint16_t zero16 = 0;
-    memcpy(s_spTemplate.data() + 0xE4, &one, 4);
-    memcpy(s_spTemplate.data() + 0x08, &perm, 4);
-    memcpy(s_spTemplate.data() + 0x00, &none, 4);
-    memcpy(s_spTemplate.data() + 0x156, &zero16, 2);
-    for (int o : {0x170, 0x18C, 0x190, 0x194, 0x198, 0x19C, 0x1A0, 0x1A4}) memcpy(s_spTemplate.data() + o, &none, 4);
+    elog("Cosmetique : categorie d'armure a +0x%X", s_catOff);
 
-    std::vector<int> tvfx;
-    std::vector<uint32_t> bases;
-    for (int i = 0, n = game::param_rows(s_vfx); i < n; ++i) {
+    int nv = game::param_rows(s_vfx);
+    auto countTp = [&](int o) {
+        int c = 0;
+        for (int i = 0; i < nv; ++i) {
+            int32_t id;
+            uintptr_t d;
+            if (!game::param_row(s_vfx, i, id, d)) continue;
+            int32_t v = rdv<int32_t>(d + o, -1);
+            if (v >= 10000 && prot((uint32_t)v + 100) && prot((uint32_t)v + 200) && prot((uint32_t)v + 300)) ++c;
+        }
+        return c;
+    };
+    if (countTp(s_tpOff) == 0) {
+        int best = -1, bestC = 0;
+        for (int o = 0; o + 4 <= (int)s_vfxSize; o += 4) {
+            int c = countTp(o);
+            if (c > bestC) { bestC = c; best = o; }
+        }
+        if (best < 0) return fail("aucune transformation d'armure dans les effets visuels");
+        s_tpOff = best;
+    }
+    std::vector<TV> tv;
+    for (int i = 0; i < nv; ++i) {
         int32_t id;
         uintptr_t d;
         if (!game::param_row(s_vfx, i, id, d)) continue;
-        int32_t tp = rdv<int32_t>(d + 0x20, -1);
-        if (tp <= 0) continue;
-        tvfx.push_back(id);
-        bases.push_back((uint32_t)tp);
+        int32_t v = rdv<int32_t>(d + s_tpOff, -1);
+        if (v < 10000) continue;
+        bool full = prot((uint32_t)v + 100) && prot((uint32_t)v + 200) && prot((uint32_t)v + 300);
+        uintptr_t h = game::param_find(s_prot, v);
+        bool head = h && rdv<uint8_t>(h + s_catOff, 0xFF) == 0;
+        if (!full && !head) continue;
+        tv.push_back({id, d, (uint32_t)v, full, head, 0, 0});
     }
-    std::vector<int> tsp;
     for (int i = 0, n = game::param_rows(s_sp); i < n; ++i) {
         int32_t id;
         uintptr_t d;
-        if (game::param_row(s_sp, i, id, d) && refs_vfx(d, tvfx)) tsp.push_back(id);
-    }
-    for (uint32_t b : bases) {
-        if (game::param_find(s_prot, (int32_t)b + 100) && game::param_find(s_prot, (int32_t)b + 200) && game::param_find(s_prot, (int32_t)b + 300)) {
-            s_carrier = b;
-            break;
+        if (!game::param_row(s_sp, i, id, d)) continue;
+        int32_t buf[0x40];
+        if (!mem::read_raw(d + 0x100, buf, sizeof(buf))) continue;
+        for (int k = 0; k < 0x40; ++k) {
+            if (buf[k] <= 0) continue;
+            for (auto& t : tv)
+                if (t.id == buf[k] && id >= t.spId) { t.spId = id; t.spOff = 0x100 + k * 4; }
         }
     }
-    elog("Cosmetique : %zu vfx de transformation, %zu effets, porteur %u", tvfx.size(), tsp.size(), s_carrier);
-    if (tvfx.size() < 2 || tsp.size() < 2 || !s_carrier) return false;
+    for (size_t i = 0; i < tv.size() && i < 24; ++i)
+        elog("Cosmetique : vfx %d -> armure %u (%s%s), octets %02X %02X %02X %02X, effet %d (+0x%X)", tv[i].id, tv[i].tp, tv[i].full ? "corps" : "", tv[i].head ? " tete" : "",
+             rdv<uint8_t>(tv[i].row + 0x2C), rdv<uint8_t>(tv[i].row + 0x2D), rdv<uint8_t>(tv[i].row + 0x2E), rdv<uint8_t>(tv[i].row + 0x2F), tv[i].spId, tv[i].spOff);
+    const TV* body = nullptr;
+    const TV* headRow = nullptr;
+    for (auto& t : tv)
+        if (t.full && t.spId && (rdv<uint8_t>(t.row + 0x2E) & 0x80)) body = &t;
+    if (!body)
+        for (auto& t : tv)
+            if (t.full && t.spId) body = &t;
+    if (!body) return fail("aucune transformation compl\xC3\xA8te utilisable (" + std::to_string(tv.size()) + " vfx)");
+    for (auto& t : tv)
+        if (&t != body && t.spId && t.spId != body->spId && t.head && !t.full) headRow = &t;
+    s_headClearFull = false;
+    if (!headRow)
+        for (auto& t : tv)
+            if (&t != body && t.spId && t.spId != body->spId) { headRow = &t; s_headClearFull = true; }
+    if (!headRow) return fail("pas de deuxi\xC3\xA8me transformation pour le casque");
+    uintptr_t tpl = game::param_find(s_sp, 310320);
+    if (!tpl) return fail("effet mod\xC3\xA8le 310320 introuvable");
+    s_spTemplate.resize(s_spSize);
+    mem::read_raw(tpl, s_spTemplate.data(), s_spSize);
+    float one = 1.f;
+    memcpy(s_spTemplate.data() + 0xE4, &one, 4);
+    const TV* pick[2] = {headRow, body};
     for (int k = 0; k < 2; ++k) {
-        s_vfxId[k] = tvfx[tvfx.size() - 1 - k];
-        s_spId[k] = tsp[tsp.size() - 1 - k];
-        s_vfxRow[k] = game::param_find(s_vfx, s_vfxId[k]);
+        s_vfxId[k] = pick[k]->id;
+        s_vfxRow[k] = pick[k]->row;
+        s_spId[k] = pick[k]->spId;
+        s_spRef[k] = pick[k]->spOff;
         s_spRow[k] = game::param_find(s_sp, s_spId[k]);
-        s_vfxOrig[k].resize(kVfxSize);
-        s_spOrig[k].resize(kSpSize);
-        mem::read_raw(s_vfxRow[k], s_vfxOrig[k].data(), kVfxSize);
-        mem::read_raw(s_spRow[k], s_spOrig[k].data(), kSpSize);
+        s_vfxOrig[k].resize(s_vfxSize);
+        s_spOrig[k].resize(s_spSize);
+        mem::read_raw(s_vfxRow[k], s_vfxOrig[k].data(), s_vfxSize);
+        mem::read_raw(s_spRow[k], s_spOrig[k].data(), s_spSize);
     }
+    s_carrier = body->tp;
     for (int k = 0; k < 3; ++k) {
         s_carRow[k] = game::param_find(s_prot, (int32_t)s_carrier + 100 * (k + 1));
-        s_carOrig[k].resize(kProtSize);
-        mem::read_raw(s_carRow[k], s_carOrig[k].data(), kProtSize);
+        s_carOrig[k].resize(s_protSize);
+        mem::read_raw(s_carRow[k], s_carOrig[k].data(), s_protSize);
+    }
+    elog("Cosmetique : pret (casque vfx %d effet %d%s, corps vfx %d effet %d, porteur %u)", s_vfxId[0], s_spId[0], s_headClearFull ? " adapte" : "", s_vfxId[1], s_spId[1], s_carrier);
+    {
+        std::lock_guard<std::mutex> lk(s_em);
+        s_err = "pr\xC3\xAAt";
     }
     return true;
 }
 
 static void build_catalog() {
-    std::vector<Piece> cat[4];
-    std::unordered_map<uint32_t, std::string> names;
+    std::vector<std::pair<uint32_t, int>> ids;
     for (int i = 0, n = game::param_rows(s_prot); i < n; ++i) {
         int32_t id;
         uintptr_t d;
         if (!game::param_row(s_prot, i, id, d) || id < 10000) continue;
-        int c = rdv<uint8_t>(d + 0xD6, 0xFF);
-        if (c > 3) continue;
+        int c = rdv<uint8_t>(d + s_catOff, 0xFF);
+        if (c > 3 || (uint32_t)id == kBare[c]) continue;
+        ids.push_back({(uint32_t)id, c});
+    }
+    static std::vector<int> fmgs;
+    if (fmgs.empty()) {
+        std::vector<std::pair<int, int>> score;
+        for (int f = 0; f < 700; ++f) {
+            int hits = 0;
+            size_t len = 0;
+            std::string nm;
+            for (size_t k = 0; k < ids.size(); k += std::max<size_t>(1, ids.size() / 80)) {
+                if (game::fmg_text(f, ids[k].first, nm)) { ++hits; len += nm.size(); }
+            }
+            if (hits >= 3 && len / hits < 60) score.push_back({hits, f});
+        }
+        std::sort(score.begin(), score.end(), [](auto& a, auto& b) { return a.first > b.first; });
+        std::string l;
+        for (auto& sc : score) {
+            fmgs.push_back(sc.second);
+            l += " " + std::to_string(sc.second) + "(" + std::to_string(sc.first) + ")";
+        }
+        elog("Cosmetique : %zu armures, textes de noms :%s", ids.size(), l.empty() ? " aucun" : l.c_str());
+    }
+    std::vector<Piece> cat[4];
+    std::unordered_map<uint32_t, std::string> names;
+    for (auto& e : ids) {
         std::string name;
-        for (int f : {12, 313, 413, 114, 112})
-            if (game::fmg_text(f, (uint32_t)id, name)) break;
+        for (int f : fmgs)
+            if (game::fmg_text(f, e.first, name) && !name.empty()) break;
         if (name.empty() || name[0] == '[' || name[0] == '%' || name[0] == '?') continue;
-        if ((uint32_t)id == kBare[c]) continue;
-        cat[c].push_back({(uint32_t)id, name});
-        names[(uint32_t)id] = name;
+        cat[e.second].push_back({e.first, name});
+        names[e.first] = name;
     }
     size_t total = 0;
     for (int c = 0; c < 4; ++c) {
         std::sort(cat[c].begin(), cat[c].end(), [](const Piece& a, const Piece& b) { return a.name < b.name; });
         total += cat[c].size();
     }
-    if (total < 20) return;
+    if (total < 20) {
+        fmgs.clear();
+        std::lock_guard<std::mutex> lk(s_em);
+        s_err = "noms d'armures introuvables dans les textes du jeu";
+        return;
+    }
     for (int c = 0; c < 4; ++c) s_cat[c] = std::move(cat[c]);
     s_names = std::move(names);
     s_catReady = true;
@@ -163,30 +259,27 @@ static void build_catalog() {
 static void restore_rows() {
     if (!s_hijacked) return;
     for (int k = 0; k < 2; ++k) {
-        mem::write_raw(s_vfxRow[k], s_vfxOrig[k].data(), kVfxSize);
-        mem::write_raw(s_spRow[k], s_spOrig[k].data(), kSpSize);
+        mem::write_raw(s_vfxRow[k], s_vfxOrig[k].data(), s_vfxSize);
+        mem::write_raw(s_spRow[k], s_spOrig[k].data(), s_spSize);
     }
-    for (int k = 0; k < 3; ++k) mem::write_raw(s_carRow[k], s_carOrig[k].data(), kProtSize);
+    for (int k = 0; k < 3; ++k) mem::write_raw(s_carRow[k], s_carOrig[k].data(), s_protSize);
     s_hijacked = false;
 }
 
-static void write_vfx(int k, uint32_t protBase, bool full) {
+static void write_vfx(int k, uint32_t protBase) {
     std::vector<uint8_t> v = s_vfxOrig[k];
     int32_t none = -1, tp = (int32_t)protBase;
     for (int o = 0; o < 24; o += 4) memcpy(v.data() + o, &none, 4);
-    memcpy(v.data() + 0x20, &tp, 4);
-    v[44] = 8;
-    v[45] = 1;
-    v[46] = (uint8_t)((v[46] & 0x7F) | (full ? 0x80 : 0));
-    v[47] = (uint8_t)((v[47] & 0x7F) | 0x20);
-    mem::write_raw(s_vfxRow[k], v.data(), kVfxSize);
+    memcpy(v.data() + s_tpOff, &tp, 4);
+    if (k == 0 && s_headClearFull) v[0x2E] &= 0x7F;
+    mem::write_raw(s_vfxRow[k], v.data(), s_vfxSize);
 }
 
 static void write_sp(int k) {
     std::vector<uint8_t> v = s_spTemplate;
     int32_t id = s_vfxId[k];
-    memcpy(v.data() + 0x170, &id, 4);
-    mem::write_raw(s_spRow[k], v.data(), kSpSize);
+    memcpy(v.data() + s_spRef[k], &id, 4);
+    mem::write_raw(s_spRow[k], v.data(), s_spSize);
 }
 
 static bool has_effect(uintptr_t pl, int id) {
@@ -209,7 +302,7 @@ static uint32_t worn(int cat) {
     uint32_t v = P ? rdv<uint32_t>(P + 0x5F8 + (12 + cat) * 4, 0xFFFFFFFF) : 0xFFFFFFFF;
     if ((v >> 28) != 1) return kBare[cat];
     v &= 0x0FFFFFFF;
-    return game::param_find(s_prot, (int32_t)v) ? v : kBare[cat];
+    return prot(v) ? v : kBare[cat];
 }
 
 void tick(double t, uintptr_t pl) {
@@ -223,8 +316,8 @@ void tick(double t, uintptr_t pl) {
         return;
     }
     if (s_state != 1) return;
-    if (!s_catReady && game::names_ready() && t > tryAt) {
-        tryAt = t + 5.0;
+    if (!s_catReady && game::msgs_ready() && t > tryAt) {
+        tryAt = t + 6.0;
         build_catalog();
     }
     if (!pl || !game::speffect_ready()) return;
@@ -237,7 +330,7 @@ void tick(double t, uintptr_t pl) {
     bool on = g_cfg.lookOn;
     for (int c = 0; c < 4; ++c) {
         want[c] = on ? g_cfg.look[c] : 0;
-        if (want[c] && !game::param_find(s_prot, (int32_t)want[c])) want[c] = 0;
+        if (want[c] && !prot(want[c])) want[c] = 0;
     }
     bool body = want[1] || want[2] || want[3];
     uint32_t eff[4] = {want[0], 0, 0, 0};
@@ -249,22 +342,20 @@ void tick(double t, uintptr_t pl) {
         drop_effects(pl);
         s_curOn = on;
         memcpy(s_cur, eff, sizeof(eff));
-        if (!any) {
-            restore_rows();
-            return;
-        }
+        restore_rows();
+        if (!any) return;
         s_hijacked = true;
         if (eff[0]) {
-            write_vfx(0, eff[0], false);
+            write_vfx(0, eff[0]);
             write_sp(0);
         }
         if (body) {
             for (int c = 1; c < 4; ++c) {
                 uintptr_t src = game::param_find(s_prot, (int32_t)eff[c]);
-                std::vector<uint8_t> row(kProtSize);
-                if (src && mem::read_raw(src, row.data(), kProtSize)) mem::write_raw(s_carRow[c - 1], row.data(), kProtSize);
+                std::vector<uint8_t> row(s_protSize);
+                if (src && mem::read_raw(src, row.data(), s_protSize)) mem::write_raw(s_carRow[c - 1], row.data(), s_protSize);
             }
-            write_vfx(1, s_carrier, true);
+            write_vfx(1, s_carrier);
             write_sp(1);
         }
         s_reapplyAt = t + 0.35;

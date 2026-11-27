@@ -16,6 +16,7 @@ struct Set {
 };
 
 int state();
+std::string status_text();
 bool catalog_ready();
 const std::vector<Piece>& catalog(int cat);
 std::string piece_name(uint32_t id);

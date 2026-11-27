@@ -23,6 +23,8 @@ std::atomic<bool> g_menuOpen{false};
 std::atomic<bool> g_wantWeapons{false};
 std::atomic<bool> g_gameMenu{false};
 std::atomic<bool> g_fromGameMenu{false};
+std::atomic<double> g_cosPreviewT{-10.0};
+std::atomic<float> g_cosYaw{0.f};
 
 static std::mutex s_m;
 static Status s_st;
@@ -1296,6 +1298,20 @@ static void tick_rideguard(uintptr_t pl, uintptr_t tor, Status& st) {
     wasMounted = m;
 }
 
+static void tick_preview(double t, uintptr_t pl, bool mounted) {
+    if (!pl || mounted || !g_menuOpen || t - g_cosPreviewT.load() > 0.3) return;
+    uintptr_t wcm = mem::ptr(game::g.worldChrMan);
+    uintptr_t cam = wcm ? mem::ptr(wcm + 0x1ECF0) : 0;
+    uintptr_t ph = game::chr_module(pl, g_cfg.offPhysMod);
+    float fwd[3];
+    if (!cam || !ph || !mem::read_raw(cam + 0x30, fwd, 12)) return;
+    if (std::fabs(fwd[0]) + std::fabs(fwd[2]) < 1e-3f) return;
+    float yaw = std::atan2(fwd[0], fwd[2]) + g_cosYaw.load();
+    float q[4] = {0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+    mem::write_raw(ph + 0x50, q, 16);
+    mem::write_raw(ph + 0x60, q, 16);
+}
+
 static bool s_mcHave = false;
 static float s_mcLast[3];
 
@@ -1409,6 +1425,7 @@ static DWORD WINAPI tick_thread(void*) {
             tick_weight(pl, st);
             tick_dupe(st);
             tick_builds(t, st);
+            tick_preview(t, pl, mounted);
             looks::tick(t, pl);
 
             st.names = game::names_ready();

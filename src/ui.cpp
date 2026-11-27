@@ -452,48 +452,100 @@ static std::string look_label(int cat) {
     return std::string(slot[cat]) + "\n" + n;
 }
 
+static bool s_cosNow = false, s_cosPrev = false, s_cosHoleOk = false, s_cosRestore = false;
+static ImVec4 s_cosHole;
+static ImVec2 s_cosSavedPos, s_cosSavedSize;
+
 static void tab_cosmetic(const feat::Status& st) {
-    static int pickCat = -1;
     static char filter[48] = "";
     static const uint32_t bare[4] = {10000, 10100, 10200, 10300};
+    s_cosNow = true;
+    feat::g_cosPreviewT = feat::now();
+    ImGuiIO& io = ImGui::GetIO();
     int ls = looks::state();
-    card_begin("look", "Apparence de l'armure", "Change seulement ce qu'on voit : tes stats, ton poids et ton inventaire restent ceux de l'armure r\xC3\xA9" "ellement port\xC3\xA9" "e. L'apparence est remise automatiquement \xC3\xA0 chaque lancement.");
-    right_pill(ls == 1 ? (g_cfg.lookOn ? "Actif" : "Inactif") : ls == 0 ? "Initialisation" : "Indisponible sur cette version", ls == 1 ? (g_cfg.lookOn ? C_OK : C_DIM) : ls == 0 ? C_WARN : C_BAD);
-    if (toggle("Apparence personnalis\xC3\xA9" "e", &g_cfg.lookOn)) save();
-    ImGui::Dummy(ImVec2(0, 6));
-    float W = ImGui::GetContentRegionAvail().x, H = 400;
-    ImVec2 o = ImGui::GetCursorScreenPos();
+    ImVec2 o = ImGui::GetCursorScreenPos(), av = ImGui::GetContentRegionAvail();
+    float hh = std::clamp(io.DisplaySize.y * 0.56f, 300.f, std::max(300.f, av.y - 130.f));
+    float hw = std::clamp(hh * 0.62f, 220.f, std::max(220.f, av.x * 0.42f));
+    float cx = o.x + av.x * 0.5f;
+    float y0 = std::max(o.y + 62.f, io.DisplaySize.y * 0.5f - hh * 0.5f);
+    if (y0 + hh + 62.f > o.y + av.y) y0 = std::max(o.y + 62.f, o.y + av.y - hh - 62.f);
+    ImVec2 h0(cx - hw * 0.5f, y0), h1(cx + hw * 0.5f, y0 + hh);
+    s_cosHole = ImVec4(h0.x, h0.y, h1.x, h1.y);
+    s_cosHoleOk = true;
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    float cx = o.x + W * 0.5f;
-    auto col = [&](int cat) { return ImGui::GetColorU32(g_cfg.lookOn && g_cfg.look[cat] ? C_GOLD : C_GOLD_LO); };
-    ImU32 line = ImGui::GetColorU32(C_GOLD_HI);
-    dl->AddCircleFilled(ImVec2(cx, o.y + 92), 27, col(0), 32);
-    dl->AddCircle(ImVec2(cx, o.y + 92), 27, line, 32, 1.5f);
-    dl->AddRectFilled(ImVec2(cx - 40, o.y + 126), ImVec2(cx + 40, o.y + 226), col(1), 10);
-    dl->AddRect(ImVec2(cx - 40, o.y + 126), ImVec2(cx + 40, o.y + 226), line, 10, 0, 1.5f);
-    for (int sgn : {-1, 1}) {
-        float x0 = cx + sgn * 46, x1 = cx + sgn * 68;
-        dl->AddRectFilled(ImVec2(std::min(x0, x1), o.y + 130), ImVec2(std::max(x0, x1), o.y + 222), col(2), 8);
-        dl->AddRect(ImVec2(std::min(x0, x1), o.y + 130), ImVec2(std::max(x0, x1), o.y + 222), line, 8, 0, 1.5f);
-        float l0 = cx + sgn * 5, l1 = cx + sgn * 37;
-        dl->AddRectFilled(ImVec2(std::min(l0, l1), o.y + 232), ImVec2(std::max(l0, l1), o.y + 338), col(3), 8);
-        dl->AddRect(ImVec2(std::min(l0, l1), o.y + 232), ImVec2(std::max(l0, l1), o.y + 338), line, 8, 0, 1.5f);
+    dl->AddRect(h0, h1, ImGui::GetColorU32(C_GOLD), 6, 0, 2.f);
+    float midY = (h0.y + h1.y) * 0.5f;
+    float leftW = h0.x - 16 - o.x, rightX = h1.x + 16, rightW = o.x + av.x - rightX;
+    float bw = std::clamp(std::min(leftW, rightW), 140.f, 280.f);
+    ImVec2 pos[4] = {ImVec2(cx - bw * 0.5f, h0.y - 58), ImVec2(h0.x - 16 - bw, midY - 28), ImVec2(rightX, midY - 28), ImVec2(cx - bw * 0.5f, h1.y + 8)};
+
+    ImGui::SetCursorScreenPos(o);
+    ImGui::BeginChild("cl", ImVec2(leftW, std::max(60.f, midY - 40 - o.y)), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
+    card_begin("look", "Apparence de l'armure", "Change seulement ce qu'on voit : stats, poids et inventaire restent ceux de l'armure r\xC3\xA9" "ellement port\xC3\xA9" "e. Remis automatiquement \xC3\xA0 chaque lancement.");
+    right_pill(ls == 1 ? (g_cfg.lookOn ? "Actif" : "Inactif") : ls == 0 ? "Initialisation" : "Indisponible", ls == 1 ? (g_cfg.lookOn ? C_OK : C_DIM) : ls == 0 ? C_WARN : C_BAD);
+    if (toggle("Apparence personnalis\xC3\xA9" "e", &g_cfg.lookOn)) save();
+    if (ls != 1 || !looks::catalog_ready()) {
+        std::string stx = "\xC3\x89tat : " + looks::status_text();
+        hint(stx.c_str());
     }
-    float bw = std::min(230.f, (W - 170.f) * 0.5f);
-    if (bw < 120.f) bw = 120.f;
-    ImVec2 pos[4] = {ImVec2(cx - bw * 0.5f, o.y + 4), ImVec2(cx - 84 - bw, o.y + 150), ImVec2(cx + 84, o.y + 150), ImVec2(cx - bw * 0.5f, o.y + 348)};
+    card_end();
+    ImGui::EndChild();
+
+    ImGui::SetCursorScreenPos(ImVec2(o.x, midY + 40));
+    ImGui::BeginChild("clb", ImVec2(leftW, std::max(40.f, o.y + av.y - midY - 40)), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
+    card_begin("lhelp", "Aper\xC3\xA7u", "Le cadre montre ton vrai personnage en jeu, tourn\xC3\xA9 vers la cam\xC3\xA9ra. Les fl\xC3\xA8" "ches sous le cadre le font pivoter.");
+    card_end();
+    ImGui::EndChild();
+
+    ImGui::SetCursorScreenPos(ImVec2(rightX, o.y));
+    ImGui::BeginChild("cr", ImVec2(rightW, std::max(60.f, midY - 40 - o.y)), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
+    card_begin("lsave", "Enregistrer la tenue", "Garde l'apparence actuelle sous un nom.");
+    static char name[48] = "";
+    ImGui::PushItemWidth(-1);
+    ImGui::InputTextWithHint("##ln", "Nom de la tenue (optionnel)", name, sizeof(name));
+    ImGui::PopItemWidth();
+    if (primary("Enregistrer", true)) {
+        looks::add_set(name);
+        name[0] = 0;
+    }
+    card_end();
+    ImGui::EndChild();
+
+    ImGui::SetCursorScreenPos(ImVec2(rightX, midY + 40));
+    ImGui::BeginChild("crb", ImVec2(rightW, std::max(40.f, o.y + av.y - midY - 40)), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
+    card_begin("lsets", "Tenues enregistr\xC3\xA9" "es");
+    auto sets = looks::sets();
+    if (sets.empty()) hint("Aucune tenue enregistr\xC3\xA9" "e.");
+    for (size_t i = 0; i < sets.size(); ++i) {
+        ImGui::PushID((int)i);
+        if (i) ImGui::Separator();
+        ImGui::TextUnformatted(sets[i].name.c_str());
+        float w = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        if (ImGui::Button("Charger", ImVec2(w, 0))) looks::load_set(i);
+        ImGui::SameLine();
+        if (ImGui::Button("Supprimer", ImVec2(w, 0))) looks::remove_set(i);
+        ImGui::PopID();
+    }
+    card_end();
+    ImGui::EndChild();
+
     for (int cat = 0; cat < 4; ++cat) {
         ImGui::SetCursorScreenPos(pos[cat]);
         ImGui::PushID(cat);
         if (ls != 1) ImGui::BeginDisabled();
-        if (ImGui::Button(look_label(cat).c_str(), ImVec2(bw, 48))) {
-            pickCat = cat;
+        bool custom = g_cfg.lookOn && g_cfg.look[cat];
+        if (custom) ImGui::PushStyleColor(ImGuiCol_Button, C_GOLD_LO);
+        if (ImGui::Button(look_label(cat).c_str(), ImVec2(bw, 50))) {
             filter[0] = 0;
             ImGui::OpenPopup("pick");
         }
+        if (custom) ImGui::PopStyleColor();
         if (ls != 1) ImGui::EndDisabled();
-        ImGui::SetNextWindowSize(ImVec2(460, 500));
+        ImGui::SetNextWindowSize(ImVec2(std::min(620.f, io.DisplaySize.x * 0.5f), std::min(720.f, io.DisplaySize.y * 0.75f)));
         if (ImGui::BeginPopup("pick")) {
+            ImGui::PushFont(g_title);
+            ImGui::TextUnformatted(look_label(cat).substr(0, look_label(cat).find('\n')).c_str());
+            ImGui::PopFont();
             ImGui::PushItemWidth(-1);
             ImGui::InputTextWithHint("##pf", "Rechercher une pi\xC3\xA8" "ce\xE2\x80\xA6", filter, sizeof(filter));
             ImGui::PopItemWidth();
@@ -503,12 +555,16 @@ static void tab_cosmetic(const feat::Status& st) {
                 save();
                 ImGui::CloseCurrentPopup();
             };
-            if (ImGui::Selectable("R\xC3\xA9" "el (pas de changement)")) choose(0);
-            if (ImGui::Selectable("Invisible")) choose(bare[cat]);
+            ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.f, 0.5f));
+            const ImVec2 rowSz(0, 38);
+            if (ImGui::Selectable("R\xC3\xA9" "el (pas de changement)", g_cfg.look[cat] == 0, 0, rowSz)) choose(0);
+            if (ImGui::Selectable("Invisible", g_cfg.look[cat] == bare[cat], 0, rowSz)) choose(bare[cat]);
             ImGui::Separator();
             ImGui::BeginChild("plist", ImVec2(0, 0));
-            if (!looks::catalog_ready()) hint("Liste des armures en cours de chargement\xE2\x80\xA6");
-            else {
+            if (!looks::catalog_ready()) {
+                std::string stx = "Liste pas encore pr\xC3\xAAte : " + looks::status_text();
+                hint(stx.c_str());
+            } else {
                 std::string f = filter;
                 for (auto& ch : f) ch = (char)tolower((unsigned char)ch);
                 for (auto& p : looks::catalog(cat)) {
@@ -518,44 +574,25 @@ static void tab_cosmetic(const feat::Status& st) {
                         if (n.find(f) == std::string::npos) continue;
                     }
                     ImGui::PushID((int)p.id);
-                    if (ImGui::Selectable(p.name.c_str(), g_cfg.look[cat] == p.id)) choose(p.id);
+                    if (ImGui::Selectable(p.name.c_str(), g_cfg.look[cat] == p.id, 0, rowSz)) choose(p.id);
                     ImGui::PopID();
                 }
             }
             ImGui::EndChild();
+            ImGui::PopStyleVar();
             ImGui::EndPopup();
         }
         ImGui::PopID();
     }
+    float dt = io.DeltaTime;
+    ImGui::SetCursorScreenPos(ImVec2(h0.x, h1.y + 8));
+    ImGui::ArrowButton("rotl", ImGuiDir_Left);
+    if (ImGui::IsItemActive()) feat::g_cosYaw = feat::g_cosYaw.load() - 2.5f * dt;
+    ImGui::SetCursorScreenPos(ImVec2(h1.x - ImGui::GetFrameHeight(), h1.y + 8));
+    ImGui::ArrowButton("rotr", ImGuiDir_Right);
+    if (ImGui::IsItemActive()) feat::g_cosYaw = feat::g_cosYaw.load() + 2.5f * dt;
     ImGui::SetCursorScreenPos(o);
-    ImGui::Dummy(ImVec2(W, H));
-    hint("Le dessin est un sch\xC3\xA9ma, pas ton vrai personnage : le r\xC3\xA9sultat se voit directement en jeu. Tant que c'est actif, les transformations du DLC (formes de dragon...) peuvent ne plus s'afficher.");
-    card_end();
-
-    card_begin("lsets", "Tenues enregistr\xC3\xA9" "es", "Enregistre l'apparence actuelle sous un nom pour la remettre en un clic.");
-    static char name[48] = "";
-    ImGui::PushItemWidth(-1);
-    ImGui::InputTextWithHint("##ln", "Nom de la tenue (optionnel)", name, sizeof(name));
-    ImGui::PopItemWidth();
-    if (primary("Enregistrer la tenue actuelle", true)) {
-        looks::add_set(name);
-        name[0] = 0;
-    }
-    auto sets = looks::sets();
-    for (size_t i = 0; i < sets.size(); ++i) {
-        ImGui::PushID((int)i);
-        ImGui::Separator();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(sets[i].name.c_str());
-        float w = 120;
-        ImGui::SameLine();
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, ImGui::GetContentRegionAvail().x - w * 2 - ImGui::GetStyle().ItemSpacing.x));
-        if (ImGui::Button("Charger", ImVec2(w, 0))) looks::load_set(i);
-        ImGui::SameLine();
-        if (ImGui::Button("Supprimer", ImVec2(w, 0))) looks::remove_set(i);
-        ImGui::PopID();
-    }
-    card_end();
+    ImGui::Dummy(av);
     (void)st;
 }
 
@@ -748,10 +785,40 @@ void draw() {
     ImVec2 size(std::clamp(io.DisplaySize.x * 0.55f, 900.f, 1150.f), std::clamp(io.DisplaySize.y * 0.78f, 640.f, 1000.f));
     if (size.x > io.DisplaySize.x * 0.96f) size.x = io.DisplaySize.x * 0.96f;
     if (size.y > io.DisplaySize.y * 0.94f) size.y = io.DisplaySize.y * 0.94f;
-    ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSizeConstraints(ImVec2(480, 420), ImVec2(1800, 1400));
-    ImGui::Begin("EldenFree", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar);
+    ImGuiWindowFlags wf = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar;
+    bool cos = s_cosPrev;
+    if (cos) {
+        ImVec2 csz(std::min(io.DisplaySize.x * 0.94f, std::max(1100.f, io.DisplaySize.x * 0.8f)), io.DisplaySize.y * 0.92f);
+        ImGui::SetNextWindowSize(csz, ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        wf |= ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+    } else if (s_cosRestore) {
+        s_cosRestore = false;
+        ImGui::SetNextWindowSize(s_cosSavedSize, ImGuiCond_Always);
+        ImGui::SetNextWindowPos(s_cosSavedPos, ImGuiCond_Always);
+    } else {
+        ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSizeConstraints(ImVec2(480, 420), ImVec2(1800, 1400));
+    }
+    ImGui::Begin("EldenFree", nullptr, wf);
+    if (!cos) {
+        s_cosSavedPos = ImGui::GetWindowPos();
+        s_cosSavedSize = ImGui::GetWindowSize();
+    } else {
+        ImDrawList* bg = ImGui::GetWindowDrawList();
+        ImVec2 a0 = ImGui::GetWindowPos(), a1(a0.x + ImGui::GetWindowSize().x, a0.y + ImGui::GetWindowSize().y);
+        ImU32 bc = ImGui::GetColorU32(C_BG);
+        if (s_cosHoleOk && s_cosHole.x > a0.x && s_cosHole.z < a1.x && s_cosHole.y > a0.y && s_cosHole.w < a1.y) {
+            bg->AddRectFilled(a0, ImVec2(a1.x, s_cosHole.y), bc);
+            bg->AddRectFilled(ImVec2(a0.x, s_cosHole.w), a1, bc);
+            bg->AddRectFilled(ImVec2(a0.x, s_cosHole.y), ImVec2(s_cosHole.x, s_cosHole.w), bc);
+            bg->AddRectFilled(ImVec2(s_cosHole.z, s_cosHole.y), ImVec2(a1.x, s_cosHole.w), bc);
+        } else {
+            bg->AddRectFilled(a0, a1, bc);
+        }
+        bg->AddRect(a0, a1, ImGui::GetColorU32(C_GOLD_LO));
+    }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
@@ -813,6 +880,9 @@ void draw() {
         ImGui::EndTabBar();
         wantTab = -1;
     }
+    if (s_cosPrev && !s_cosNow) s_cosRestore = true;
+    s_cosPrev = s_cosNow;
+    s_cosNow = false;
     ImGui::EndChild();
 
     double age = feat::now() - st.msgTime;
