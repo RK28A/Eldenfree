@@ -191,7 +191,8 @@ static bool init() {
         s_carOrig[k].resize(s_protSize);
         mem::read_raw(s_carRow[k], s_carOrig[k].data(), s_protSize);
     }
-    elog("Cosmetique : pret (casque vfx %d effet %d%s, corps vfx %d effet %d, porteur %u)", s_vfxId[0], s_spId[0], s_headClearFull ? " adapte" : "", s_vfxId[1], s_spId[1], s_carrier);
+    elog("Cosmetique : pret (casque vfx %d effet %d%s, corps vfx %d effet %d, porteur %u, octets corps %02X %02X %02X %02X)", s_vfxId[0], s_spId[0], s_headClearFull ? " adapte" : "", s_vfxId[1], s_spId[1], s_carrier,
+         s_vfxOrig[1][0x2C], s_vfxOrig[1][0x2D], s_vfxOrig[1][0x2E], s_vfxOrig[1][0x2F]);
     {
         std::lock_guard<std::mutex> lk(s_em);
         s_err = "pr\xC3\xAAt";
@@ -292,11 +293,12 @@ static void restore_rows() {
 }
 
 static void write_vfx(int k, uint32_t protBase) {
-    std::vector<uint8_t> v = s_vfxOrig[k];
+    std::vector<uint8_t> v = s_vfxOrig[1];
     int32_t none = -1, tp = (int32_t)protBase;
     for (int o = 0; o < 24; o += 4) memcpy(v.data() + o, &none, 4);
     memcpy(v.data() + s_tpOff, &tp, 4);
-    if (k == 0 && s_headClearFull) v[0x2E] &= 0x7F;
+    if (k == 0) v[0x2E] &= 0x7F;
+    v[0x2F] &= 0x7F;
     mem::write_raw(s_vfxRow[k], v.data(), s_vfxSize);
 }
 
