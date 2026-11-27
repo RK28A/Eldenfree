@@ -35,6 +35,7 @@ struct Config {
     bool freeAshDupe = false;
     bool buildStats = true;
     bool lookOn = false;
+    float cosDist = 5.0f;
     uint32_t look[4] = {0, 0, 0, 0};
     bool graceMenu = false;
     int jumpKey = 0x46;

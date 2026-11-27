@@ -1298,8 +1298,40 @@ static void tick_rideguard(uintptr_t pl, uintptr_t tor, Status& st) {
     wasMounted = m;
 }
 
+static std::vector<std::pair<uintptr_t, float>> s_camOrig;
+static bool s_camOn = false, s_camTried = false;
+
+static void cam_zoom(bool on) {
+    if (on) {
+        if (!s_camOn) {
+            if (s_camTried && s_camOrig.empty()) return;
+            s_camTried = true;
+            s_camOrig.clear();
+            for (uintptr_t tb : game::param_tables("LOCK_CAM_PARAM_ST"))
+                for (int i = 0, n = game::param_rows(tb); i < n; ++i) {
+                    int32_t id;
+                    uintptr_t d;
+                    if (!game::param_row(tb, i, id, d)) continue;
+                    float dist = mem::rdv<float>(d, 0.f), fov = mem::rdv<float>(d + 0x14, 0.f);
+                    if (dist >= 1.5f && dist <= 12.f && fov >= 20.f && fov <= 100.f) s_camOrig.push_back({d, dist});
+                }
+            elog("Apercu : %zu reglages de camera", s_camOrig.size());
+            if (s_camOrig.empty()) return;
+            s_camOn = true;
+        }
+        float dist = std::clamp(g_cfg.cosDist, 1.5f, 10.f);
+        for (auto& c : s_camOrig)
+            if (mem::rdv<float>(c.first, 0.f) != dist) mem::wr(c.first, dist);
+    } else if (s_camOn) {
+        for (auto& c : s_camOrig) mem::wr(c.first, c.second);
+        s_camOn = false;
+    }
+}
+
 static void tick_preview(double t, uintptr_t pl, bool mounted) {
-    if (!pl || mounted || !g_menuOpen || t - g_cosPreviewT.load() > 0.3) return;
+    bool active = pl && g_menuOpen && t - g_cosPreviewT.load() < 0.3;
+    cam_zoom(active);
+    if (!active || mounted) return;
     uintptr_t wcm = mem::ptr(game::g.worldChrMan);
     uintptr_t cam = wcm ? mem::ptr(wcm + 0x1ECF0) : 0;
     uintptr_t ph = game::chr_module(pl, g_cfg.offPhysMod);

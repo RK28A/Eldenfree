@@ -464,11 +464,11 @@ static void tab_cosmetic(const feat::Status& st) {
     ImGuiIO& io = ImGui::GetIO();
     int ls = looks::state();
     ImVec2 o = ImGui::GetCursorScreenPos(), av = ImGui::GetContentRegionAvail();
-    float hh = std::clamp(io.DisplaySize.y * 0.56f, 300.f, std::max(300.f, av.y - 130.f));
-    float hw = std::clamp(hh * 0.62f, 220.f, std::max(220.f, av.x * 0.42f));
+    float hh = std::clamp(io.DisplaySize.y * 0.66f, 300.f, std::max(300.f, av.y - 130.f));
+    float hw = std::clamp(hh * 0.60f, 220.f, std::max(220.f, av.x * 0.42f));
     float cx = o.x + av.x * 0.5f;
-    float y0 = std::max(o.y + 62.f, io.DisplaySize.y * 0.5f - hh * 0.5f);
-    if (y0 + hh + 62.f > o.y + av.y) y0 = std::max(o.y + 62.f, o.y + av.y - hh - 62.f);
+    float y0 = std::max(o.y + 62.f, io.DisplaySize.y * 0.52f - hh * 0.5f);
+    if (y0 + hh + 76.f > o.y + av.y) y0 = std::max(o.y + 62.f, o.y + av.y - hh - 76.f);
     ImVec2 h0(cx - hw * 0.5f, y0), h1(cx + hw * 0.5f, y0 + hh);
     s_cosHole = ImVec4(h0.x, h0.y, h1.x, h1.y);
     s_cosHoleOk = true;
@@ -493,7 +493,11 @@ static void tab_cosmetic(const feat::Status& st) {
 
     ImGui::SetCursorScreenPos(ImVec2(o.x, midY + 40));
     ImGui::BeginChild("clb", ImVec2(leftW, std::max(40.f, o.y + av.y - midY - 40)), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
-    card_begin("lhelp", "Aper\xC3\xA7u", "Le cadre montre ton vrai personnage en jeu, tourn\xC3\xA9 vers la cam\xC3\xA9ra. Les fl\xC3\xA8" "ches sous le cadre le font pivoter.");
+    card_begin("lhelp", "Aper\xC3\xA7u", "Le cadre montre ton vrai personnage en jeu, tourn\xC3\xA9 vers la cam\xC3\xA9ra. Sous le cadre : fl\xC3\xA8" "ches pour le faire pivoter, - et + pour reculer ou rapprocher la cam\xC3\xA9ra.");
+    ImGui::PushItemWidth(-1);
+    ImGui::SliderFloat("##cd", &g_cfg.cosDist, 1.5f, 10.f, "Distance cam\xC3\xA9ra  %.1f m");
+    if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    ImGui::PopItemWidth();
     card_end();
     ImGui::EndChild();
 
@@ -564,6 +568,8 @@ static void tab_cosmetic(const feat::Status& st) {
             if (!looks::catalog_ready()) {
                 std::string stx = "Liste pas encore pr\xC3\xAAte : " + looks::status_text();
                 hint(stx.c_str());
+            } else if (looks::catalog(cat).empty()) {
+                hint("Aucune pi\xC3\xA8" "ce trouv\xC3\xA9" "e pour cet emplacement.");
             } else {
                 std::string f = filter;
                 for (auto& ch : f) ch = (char)tolower((unsigned char)ch);
@@ -585,12 +591,21 @@ static void tab_cosmetic(const feat::Status& st) {
         ImGui::PopID();
     }
     float dt = io.DeltaTime;
+    float fh = ImGui::GetFrameHeight();
     ImGui::SetCursorScreenPos(ImVec2(h0.x, h1.y + 8));
     ImGui::ArrowButton("rotl", ImGuiDir_Left);
     if (ImGui::IsItemActive()) feat::g_cosYaw = feat::g_cosYaw.load() - 2.5f * dt;
-    ImGui::SetCursorScreenPos(ImVec2(h1.x - ImGui::GetFrameHeight(), h1.y + 8));
+    ImGui::SetCursorScreenPos(ImVec2(h0.x, h1.y + 12 + fh));
+    ImGui::Button("-##zo", ImVec2(fh, fh));
+    if (ImGui::IsItemActive()) g_cfg.cosDist = std::min(10.f, g_cfg.cosDist + 3.f * dt);
+    if (ImGui::IsItemDeactivated()) save();
+    ImGui::SetCursorScreenPos(ImVec2(h1.x - fh, h1.y + 8));
     ImGui::ArrowButton("rotr", ImGuiDir_Right);
     if (ImGui::IsItemActive()) feat::g_cosYaw = feat::g_cosYaw.load() + 2.5f * dt;
+    ImGui::SetCursorScreenPos(ImVec2(h1.x - fh, h1.y + 12 + fh));
+    ImGui::Button("+##zi", ImVec2(fh, fh));
+    if (ImGui::IsItemActive()) g_cfg.cosDist = std::max(1.5f, g_cfg.cosDist - 3.f * dt);
+    if (ImGui::IsItemDeactivated()) save();
     ImGui::SetCursorScreenPos(o);
     ImGui::Dummy(av);
     (void)st;
@@ -788,7 +803,7 @@ void draw() {
     ImGuiWindowFlags wf = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar;
     bool cos = s_cosPrev;
     if (cos) {
-        ImVec2 csz(std::min(io.DisplaySize.x * 0.94f, std::max(1100.f, io.DisplaySize.x * 0.8f)), io.DisplaySize.y * 0.92f);
+        ImVec2 csz(std::min(io.DisplaySize.x * 0.94f, std::max(1100.f, io.DisplaySize.x * 0.8f)), io.DisplaySize.y * 0.97f);
         ImGui::SetNextWindowSize(csz, ImGuiCond_Always);
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         wf |= ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;

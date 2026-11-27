@@ -200,60 +200,70 @@ static bool init() {
 }
 
 static void build_catalog() {
-    std::vector<std::pair<uint32_t, int>> ids;
+    struct E { uint32_t id; int cp, ci; };
+    std::vector<E> ids;
+    int okParam[4] = {0, 0, 0, 0};
     for (int i = 0, n = game::param_rows(s_prot); i < n; ++i) {
         int32_t id;
         uintptr_t d;
         if (!game::param_row(s_prot, i, id, d) || id < 10000) continue;
-        int c = rdv<uint8_t>(d + s_catOff, 0xFF);
-        if (c > 3 || (uint32_t)id == kBare[c]) continue;
-        ids.push_back({(uint32_t)id, c});
+        int cp = rdv<uint8_t>(d + s_catOff, 0xFF), ci = (id / 100) % 10;
+        if (cp > 3) cp = -1;
+        if (ci > 3) ci = -1;
+        if (cp < 0 && ci < 0) continue;
+        if ((uint32_t)id == kBare[0] || (uint32_t)id == kBare[1] || (uint32_t)id == kBare[2] || (uint32_t)id == kBare[3]) continue;
+        if (cp >= 0) okParam[cp]++;
+        ids.push_back({(uint32_t)id, cp, ci});
     }
+    bool useParam = okParam[0] >= 10 && okParam[1] >= 10 && okParam[2] >= 10 && okParam[3] >= 10;
     static std::vector<int> fmgs;
+    std::string fl;
     if (fmgs.empty()) {
         std::vector<std::pair<int, int>> score;
+        size_t step = std::max<size_t>(1, ids.size() / 80);
         for (int f = 0; f < 700; ++f) {
             int hits = 0;
             size_t len = 0;
             std::string nm;
-            for (size_t k = 0; k < ids.size(); k += std::max<size_t>(1, ids.size() / 80)) {
-                if (game::fmg_text(f, ids[k].first, nm)) { ++hits; len += nm.size(); }
-            }
+            for (size_t k = 0; k < ids.size(); k += step)
+                if (game::fmg_text(f, ids[k].id, nm)) { ++hits; len += nm.size(); }
             if (hits >= 3 && len / hits < 60) score.push_back({hits, f});
         }
-        std::sort(score.begin(), score.end(), [](auto& a, auto& b) { return a.first > b.first; });
-        std::string l;
+        std::sort(score.begin(), score.end(), [](auto& x, auto& y) { return x.first > y.first; });
         for (auto& sc : score) {
             fmgs.push_back(sc.second);
-            l += " " + std::to_string(sc.second) + "(" + std::to_string(sc.first) + ")";
+            fl += " " + std::to_string(sc.second) + "(" + std::to_string(sc.first) + ")";
         }
-        elog("Cosmetique : %zu armures, textes de noms :%s", ids.size(), l.empty() ? " aucun" : l.c_str());
+        elog("Cosmetique : %zu armures (categories %s), textes de noms :%s", ids.size(), useParam ? "param" : "par numero", fl.empty() ? " aucun" : fl.c_str());
     }
     std::vector<Piece> cat[4];
     std::unordered_map<uint32_t, std::string> names;
     for (auto& e : ids) {
+        int c = useParam ? e.cp : e.ci;
+        if (c < 0) continue;
         std::string name;
         for (int f : fmgs)
-            if (game::fmg_text(f, e.first, name) && !name.empty()) break;
+            if (game::fmg_text(f, e.id, name) && !name.empty()) break;
         if (name.empty() || name[0] == '[' || name[0] == '%' || name[0] == '?') continue;
-        cat[e.second].push_back({e.first, name});
-        names[e.first] = name;
+        cat[c].push_back({e.id, name});
+        names[e.id] = name;
     }
     size_t total = 0;
     for (int c = 0; c < 4; ++c) {
-        std::sort(cat[c].begin(), cat[c].end(), [](const Piece& a, const Piece& b) { return a.name < b.name; });
+        std::sort(cat[c].begin(), cat[c].end(), [](const Piece& x, const Piece& y) { return x.name < y.name; });
         total += cat[c].size();
     }
     if (total < 20) {
+        size_t nf = fmgs.size();
         fmgs.clear();
         std::lock_guard<std::mutex> lk(s_em);
-        s_err = "noms d'armures introuvables dans les textes du jeu";
+        s_err = "noms d'armures introuvables (" + std::to_string(ids.size()) + " armures, " + std::to_string(nf) + " textes candidats, " + std::to_string(total) + " noms)";
         return;
     }
     for (int c = 0; c < 4; ++c) s_cat[c] = std::move(cat[c]);
     s_names = std::move(names);
     s_catReady = true;
-    elog("Cosmetique : %zu pieces d'armure listees", total);
+    elog("Cosmetique : %zu pieces d'armure listees (%zu / %zu / %zu / %zu)", total, s_cat[0].size(), s_cat[1].size(), s_cat[2].size(), s_cat[3].size());
 }
 
 static void restore_rows() {
@@ -316,8 +326,9 @@ void tick(double t, uintptr_t pl) {
         return;
     }
     if (s_state != 1) return;
-    if (!s_catReady && game::msgs_ready() && t > tryAt) {
-        tryAt = t + 6.0;
+    static double catAt = 0;
+    if (!s_catReady && t > catAt) {
+        catAt = t + 4.0;
         build_catalog();
     }
     if (!pl || !game::speffect_ready()) return;

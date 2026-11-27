@@ -79,6 +79,7 @@ void cfg_load() {
     c.freeAshDupe = geti(L"Menus", L"FreeAshDupe", c.freeAshDupe);
     c.buildStats = geti(L"Builds", L"RestoreStats", c.buildStats);
     c.lookOn = geti(L"Cosmetic", L"Enabled", c.lookOn);
+    c.cosDist = getf(L"Cosmetic", L"CamDist", c.cosDist);
     c.look[0] = (uint32_t)geti(L"Cosmetic", L"Head", 0);
     c.look[1] = (uint32_t)geti(L"Cosmetic", L"Chest", 0);
     c.look[2] = (uint32_t)geti(L"Cosmetic", L"Arms", 0);
@@ -153,6 +154,7 @@ void cfg_save() {
     puti(L"Menus", L"FreeAshDupe", c.freeAshDupe);
     puti(L"Builds", L"RestoreStats", c.buildStats);
     puti(L"Cosmetic", L"Enabled", c.lookOn);
+    putf(L"Cosmetic", L"CamDist", c.cosDist);
     puti(L"Cosmetic", L"Head", (int)c.look[0]);
     puti(L"Cosmetic", L"Chest", (int)c.look[1]);
     puti(L"Cosmetic", L"Arms", (int)c.look[2]);
