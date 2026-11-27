@@ -884,20 +884,12 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
         }
         if (skill && (is_flail_spin(q[i]) || s_flailAnims.count(q[i]))) anim = q[i];
     }
-    static bool energySet = false;
-    static uint8_t energyPrev = 0;
-    static uintptr_t energyChr = 0;
+    static uintptr_t cleanedChr = 0;
     uintptr_t dm = game::chr_module(pl, g_cfg.offDataMod);
-    if (g_cfg.flailSpin && s_rwFlail && dm) {
+    if (dm && cleanedChr != pl) {
         uint8_t f = mem::rdv<uint8_t>(dm + g_cfg.offChrFlags);
-        if (!energySet) { energyPrev = f & 0x0C; energySet = true; energyChr = pl; }
-        if ((f & 0x0C) != 0x0C) mem::wr(dm + g_cfg.offChrFlags, (uint8_t)(f | 0x0C));
-    } else if (energySet) {
-        if (energyChr == pl && dm) {
-            uint8_t f = mem::rdv<uint8_t>(dm + g_cfg.offChrFlags);
-            mem::wr(dm + g_cfg.offChrFlags, (uint8_t)((f & ~0x0C) | energyPrev));
-        }
-        energySet = false;
+        if (f & 0x0C) mem::wr(dm + g_cfg.offChrFlags, (uint8_t)(f & ~0x0C));
+        cleanedChr = pl;
     }
     float mult = std::clamp(g_cfg.flailMult, 1.f, 25.f);
     bool want = g_cfg.flailSpin && s_rwFlail && anim > 0;
@@ -910,6 +902,14 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
     }
     if (want && moving) mult = 1.f;
     s_flailApplied = want ? mult : 1.f;
+    if (want && dm) {
+        int32_t fpMax = mem::rdv<int32_t>(dm + 0x14C), stMax = mem::rdv<int32_t>(dm + 0x158);
+        if (fpMax > 0 && fpMax < 10000 && mem::rdv<int32_t>(dm + 0x148) < fpMax) {
+            mem::wr(dm + 0x148, fpMax);
+            mem::wr(P + g_cfg.offPgdFp, (uint32_t)fpMax);
+        }
+        if (stMax > 0 && stMax < 10000 && mem::rdv<int32_t>(dm + 0x154) < stMax) mem::wr(dm + 0x154, stMax);
+    }
     if (want) {
         game::set_anim_speed(pl, mult);
         s_flailOn = true;
