@@ -22,6 +22,7 @@ struct Status {
     bool pauseLearned = false;
     bool mapBase = false, mapDlc = false, gracesBase = false, gracesDlc = false;
     int deaths = -1;
+    float equipLoad = 0, equipLoadBase = 0;
     int castAttack = 0;
     bool core = false, params = false, player = false, itemGib = false, names = false, flags = false;
     int playerOff = -1;

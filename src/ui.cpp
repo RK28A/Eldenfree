@@ -413,7 +413,7 @@ static void tab_player(const feat::Status& st) {
     hint("Le minuteur de chute du jeu est remis \xC3\xA0 z\xC3\xA9ro en continu, le sol est trait\xC3\xA9 comme sans d\xC3\xA9g\xC3\xA2t de chute, et le personnage (et Torrent) est intouchable pendant la chute et l'atterrissage.");
     card_end();
 
-    card_begin("cast", "Cast rapide des buffs", "Acc\xC3\xA9l\xC3\xA8re uniquement les buffs : sorts / incantations de buff et cendres de guerre de buff. Les attaques gardent leur vitesse normale.");
+    card_begin("cast", "Cast rapide des buffs", "Acc\xC3\xA9l\xC3\xA8re uniquement les buffs : sorts / incantations de buff, cendres de guerre de buff (hurlements...) et la Fiole merveilleuse. Les attaques gardent leur vitesse normale.");
     char cb[64];
     snprintf(cb, sizeof(cb), "%d sorts / %d cendres buff", st.castLearned, st.castAttack);
     right_pill(st.casting ? "Cast en cours" : cb, st.casting ? C_WARN : C_DIM);
@@ -435,6 +435,20 @@ static void tab_player(const feat::Status& st) {
         snprintf(buf, sizeof(buf), "%u runes en attente de restitution\xE2\x80\xA6", st.runesSaved);
         hint(buf);
     }
+    card_end();
+}
+
+static void tab_plus(const feat::Status& st) {
+    card_begin("weight", "Charge d'\xC3\xA9quipement", "Augmente ton poids d'\xC3\xA9quipement maximal (roulade l\xC3\xA9g\xC3\xA8re avec des armures lourdes).");
+    char b[64];
+    snprintf(b, sizeof(b), "%.1f max", st.equipLoad);
+    right_pill(b, C_GOLD);
+    ImGui::PushItemWidth(-1);
+    ImGui::SliderFloat("##wm", &g_cfg.weightMult, 1.f, 10.f, "Multiplicateur  x%.1f");
+    if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    ImGui::PopItemWidth();
+    snprintf(b, sizeof(b), "Charge de base : %.1f", st.equipLoadBase);
+    hint(b);
     card_end();
 }
 
@@ -545,7 +559,7 @@ void draw() {
     float footer = 34;
     ImGui::BeginChild("body", ImVec2(0, -footer), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
     static int curTab = 0, wantTab = -1;
-    const int tabCount = 7;
+    const int tabCount = 8;
     if (!ImGui::IsKeyDown(ImGuiKey_GamepadBack)) {
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) wantTab = (curTab + tabCount - 1) % tabCount;
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) wantTab = (curTab + 1) % tabCount;
@@ -575,6 +589,7 @@ void draw() {
         tab("Armes", tab_weapons);
         tab("Torrent", tab_torrent);
         tab("Joueur", tab_player);
+        tab("Plus", tab_plus);
         tab("Diagnostic", tab_diag);
         ImGui::EndTabBar();
         wantTab = -1;

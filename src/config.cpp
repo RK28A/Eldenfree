@@ -66,6 +66,7 @@ void cfg_load() {
     c.flySpeed = getf(L"Torrent", L"FlySpeed", c.flySpeed);
     c.fastCast = geti(L"Player", L"FastCast", c.fastCast);
     c.castSpeed = getf(L"Player", L"CastSpeed", c.castSpeed);
+    c.weightMult = getf(L"Plus", L"EquipLoadMult", c.weightMult);
     c.castAnims = gets(L"Player", L"CastSpellAnimsV2");
     c.castAnimsNo = gets(L"Player", L"CastSpellAnimsAttack");
     c.aowBuff = gets(L"Player", L"AshOfWarBuffAnims");
@@ -124,6 +125,7 @@ void cfg_save() {
     putf(L"Torrent", L"FlySpeed", c.flySpeed);
     puti(L"Player", L"FastCast", c.fastCast);
     putf(L"Player", L"CastSpeed", c.castSpeed);
+    putf(L"Plus", L"EquipLoadMult", c.weightMult);
     puts_(L"Player", L"CastSpellAnimsV2", c.castAnims);
     puts_(L"Player", L"CastSpellAnimsAttack", c.castAnimsNo);
     puts_(L"Player", L"AshOfWarBuffAnims", c.aowBuff);

@@ -617,7 +617,7 @@ static void tick_cast(uintptr_t pl, Status& st) {
             int mpc = mem::rdv<int16_t>(row + 0x5C);
             isSpell = mp > 0 && drop * 2 >= mp && drop <= mp + std::max(mpc, 0) + 2;
         }
-        if (!isSpell && s_aowPend < 0 && !s_aowBuff.count(anim) && !s_aowNo.count(anim) && !s_castAnims.count(anim)) {
+        if (!isSpell && s_aowPend < 0 && !s_aowBuff.count(anim) && !s_castAnims.count(anim)) {
             s_aowPend = anim;
             s_aowPendT = t;
             game::speffects(pl, s_aowFx);
@@ -633,28 +633,43 @@ static void tick_cast(uintptr_t pl, Status& st) {
             }
         }
     }
-    if (s_aowPend > 0 && t - s_aowPendT > 2.0) {
+    if (s_aowPend > 0 && t - s_aowPendT > 3.0) {
         std::vector<std::pair<int, float>> fx;
         game::speffects(pl, fx);
         bool buff = false;
         for (auto& e : fx) {
-            if (e.second < 15.f || e.second > 600.f) continue;
+            if ((e.second >= 0.f && e.second < 5.f) || e.second > 900.f) continue;
             bool known = false;
             for (auto& o : s_aowFx)
                 if (o.first == e.first) { known = true; break; }
             if (!known) { buff = true; break; }
         }
-        (buff ? s_aowBuff : s_aowNo).insert(s_aowPend);
+        if (buff) {
+            s_aowBuff.insert(s_aowPend);
+            s_aowNo.erase(s_aowPend);
+        } else {
+            s_aowNo.insert(s_aowPend);
+        }
         elog("Cendre de guerre anim %d : %s", s_aowPend, buff ? "buff" : "attaque");
         s_aowPend = -1;
         g_cfg.aowBuff = join_set(s_aowBuff);
         g_cfg.aowNo = join_set(s_aowNo);
         cfg_save();
     }
+    static std::unordered_set<int> physAnims;
+    static bool physPrev = false;
+    static double physLearnUntil = 0;
+    uint32_t qitem = mem::rdv<uint32_t>(pl + 0x160, 0xFFFFFFFF);
+    uint32_t qid = qitem & 0x0FFFFFFF;
+    bool physNow = qitem != 0xFFFFFFFF && (qitem >> 28) == 0x4 && (qid == 250 || qid == 251);
+    if (physNow && !physPrev) physLearnUntil = t + 1.5;
+    physPrev = physNow;
+    if (physNow && anim > 0 && t < physLearnUntil) physAnims.insert(anim);
+    bool physick = physNow && anim > 0 && physAnims.count(anim);
     s_lastFp = fp;
     s_lastCastHp = hp;
     bool want = g_cfg.fastCast && anim > 0 &&
-                ((s_castAnims.count(anim) && selected_spell_is_buff()) || s_aowBuff.count(anim));
+                ((s_castAnims.count(anim) && selected_spell_is_buff()) || s_aowBuff.count(anim) || physick);
     if (want) {
         game::set_anim_speed(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f));
         s_castActive = true;
@@ -952,6 +967,28 @@ static void tick_menus(double t, uintptr_t pl, Status& st) {
     }
 }
 
+static float s_wBase = 0, s_wLast = 0;
+
+static void tick_weight(uintptr_t pl, Status& st) {
+    uintptr_t P = game::pgd();
+    if (!pl || !P) { s_wLast = 0; return; }
+    uintptr_t a = P + 0x98C;
+    float cur = mem::rdv<float>(a, 0.f);
+    if (!(cur > 1.f && cur < 5000.f)) return;
+    if (s_wLast == 0.f || std::fabs(cur - s_wLast) > 0.01f) s_wBase = cur;
+    float mult = std::clamp(g_cfg.weightMult, 1.f, 10.f);
+    if (mult > 1.001f) {
+        float want = s_wBase * mult;
+        if (std::fabs(cur - want) > 0.01f) mem::wr(a, want);
+        s_wLast = want;
+    } else if (s_wLast != 0.f) {
+        if (std::fabs(cur - s_wLast) <= 0.01f) mem::wr(a, s_wBase);
+        s_wLast = 0;
+    }
+    st.equipLoad = mem::rdv<float>(a, 0.f);
+    st.equipLoadBase = s_wBase;
+}
+
 static DWORD WINAPI scan_thread(void*) {
     ULONGLONG lastNames = 0;
     for (;;) {
@@ -1035,6 +1072,7 @@ static DWORD WINAPI tick_thread(void*) {
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;
             tick_cast(pl, st);
+            tick_weight(pl, st);
 
             st.names = game::names_ready();
             if (pl && g_menuOpen && g_wantWeapons && t - lastWeps > 1.5) {

@@ -19,6 +19,7 @@ struct Config {
     std::string jumpFlags;
     bool fastCast = false;
     float castSpeed = 6.0f;
+    float weightMult = 1.0f;
     std::string castAnims;
     std::string castAnimsNo;
     std::string aowBuff;
