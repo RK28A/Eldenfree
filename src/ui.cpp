@@ -508,7 +508,12 @@ static void tab_diag(const feat::Status& st) {
         status_row("T\xC3\xA9l\xC3\xA9portation", st.warp);
         status_row("Patch carte en combat", st.pMap);
         status_row("Patch Torrent partout", st.pRide);
+        status_row("Patch Torrent zones sp\xC3\xA9" "ciales", st.pRide2);
+        char rg[48];
+        snprintf(rg, sizeof(rg), "%d acc\xC3\xA8s rep\xC3\xA9r\xC3\xA9s", st.rideGuardHits);
+        status_row("Garde anti-disparition de Torrent", st.rideGuard, st.rideGuard ? rg : "active Torrent partout puis siffle une fois");
         status_row("Patch saut infini", st.pJump);
+        status_row("Patch double saut en chute", st.pAir);
         status_row("Noms d'armes", st.names);
         status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "appelle Torrent pour le d\xC3\xA9tecter");
         ImGui::EndTable();

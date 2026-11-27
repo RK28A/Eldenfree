@@ -58,6 +58,7 @@ void cfg_load() {
     c.keepRunes = geti(L"Player", L"KeepRunes", c.keepRunes);
     c.mapCombat = geti(L"World", L"MapInCombat", c.mapCombat);
     c.rideAnywhere = geti(L"World", L"RideAnywhere", c.rideAnywhere);
+    c.rideGuard = geti(L"World", L"RideGuard", c.rideGuard);
     c.dungeonWarp = geti(L"World", L"DungeonWarp", c.dungeonWarp);
     c.torrentInfJump = geti(L"Torrent", L"InfiniteJump", c.torrentInfJump);
     c.torrentAirJump = geti(L"Torrent", L"JumpWhileFalling", c.torrentAirJump);
@@ -126,6 +127,7 @@ void cfg_save() {
     puti(L"Player", L"KeepRunes", c.keepRunes);
     puti(L"World", L"MapInCombat", c.mapCombat);
     puti(L"World", L"RideAnywhere", c.rideAnywhere);
+    puti(L"World", L"RideGuard", c.rideGuard);
     puti(L"World", L"DungeonWarp", c.dungeonWarp);
     puti(L"Torrent", L"InfiniteJump", c.torrentInfJump);
     puti(L"Torrent", L"JumpWhileFalling", c.torrentAirJump);

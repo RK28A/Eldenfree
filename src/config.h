@@ -13,6 +13,7 @@ struct Config {
     bool keepRunes = false;
     bool mapCombat = false;
     bool rideAnywhere = false;
+    bool rideGuard = true;
     bool dungeonWarp = false;
     bool torrentInfJump = false;
     bool torrentAirJump = false;

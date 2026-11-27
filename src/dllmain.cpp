@@ -3,6 +3,7 @@
 #include "mem.h"
 #include "features.h"
 #include "overlay.h"
+#include "watch.h"
 
 static HMODULE g_self;
 
@@ -26,6 +27,7 @@ static DWORD WINAPI boot(void*) {
     cfg_save();
     elog("EldenFree charge");
     mem::init();
+    watch::init();
     HWND w = nullptr;
     while (!w) {
         EnumWindows(find_wnd, (LPARAM)&w);

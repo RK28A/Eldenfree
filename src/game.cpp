@@ -495,6 +495,16 @@ bool patch_found(int id) {
 
 bool patch_on(int id) { return id >= 0 && id < P_COUNT && s_patches[id].on; }
 
+uintptr_t patch_slot(int id) {
+    if (id < 0 || id >= P_COUNT || !s_patches[id].on || !s_patches[id].caveMem) return 0;
+    return *(volatile uintptr_t*)(s_patches[id].caveMem + 0x100);
+}
+
+void patch_flag(int id, bool on) {
+    if (id < 0 || id >= P_COUNT || !s_patches[id].caveMem) return;
+    *(volatile uint8_t*)(s_patches[id].caveMem + 0x100) = on ? 1 : 0;
+}
+
 static bool patch_intact(const CodePatch& p) {
     uint8_t b = 0;
     if (!rd(p.addr, b)) return false;
@@ -518,7 +528,31 @@ bool patch_set(int id, bool on) {
             if (!p.caveMem) return false;
             uint8_t c[64];
             size_t k = 0;
-            if (p.bytes.empty()) {
+            int pidx = (int)(&p - s_patches);
+            auto rel_slot = [&]() {
+                int32_t rel = (int32_t)((p.caveMem + 0x100) - (p.caveMem + k + 4));
+                memcpy(c + k, &rel, 4);
+                k += 4;
+            };
+            if (pidx == P_RIDE) {
+                memcpy(c + k, p.bytes.data(), 4);
+                k += 4;
+                c[k++] = 0x48; c[k++] = 0x89; c[k++] = 0x05;
+                rel_slot();
+                memcpy(c + k, p.bytes.data() + 4, 8);
+                k += 8;
+            } else if (pidx == P_HFALL) {
+                static const uint8_t want[6] = {0x88, 0x87, 0x36, 0x01, 0x00, 0x00};
+                if (memcmp(p.orig.data(), want, 6) != 0) {
+                    elog("Patch %s : instruction inattendue %02X %02X %02X %02X %02X %02X, non applique", p.name, p.orig[0], p.orig[1], p.orig[2], p.orig[3], p.orig[4], p.orig[5]);
+                    p.addr = 0;
+                    return false;
+                }
+                c[k++] = 0x0A; c[k++] = 0x05;
+                rel_slot();
+                memcpy(c + k, p.orig.data(), n);
+                k += n;
+            } else if (p.bytes.empty()) {
                 c[k++] = 0xB0;
                 c[k++] = p.caveAl;
                 memcpy(c + k, p.orig.data(), n);

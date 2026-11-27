@@ -1,3 +1,4 @@
+#include "watch.h"
 #include "features.h"
 #include "game.h"
 #include "mem.h"
@@ -548,9 +549,11 @@ static void tick_patches(Status& st) {
     static int lastWarp = -1;
     st.pMap = game::patch_found(game::P_MAP1) && game::patch_found(game::P_MAP2);
     st.pRide = game::patch_found(game::P_RIDE);
-    if (game::patch_found(game::P_RIDE2)) game::patch_set(game::P_RIDE2, g_cfg.rideAnywhere);
+    st.pRide2 = game::patch_found(game::P_RIDE2);
+    if (st.pRide2) game::patch_set(game::P_RIDE2, g_cfg.rideAnywhere);
     st.pJump = game::patch_found(game::P_HJUMP1) && game::patch_found(game::P_HJUMP2);
-    st.pAir = false;
+    st.pAir = game::patch_found(game::P_HFALL);
+    if (st.pAir) st.pAir = game::patch_set(game::P_HFALL, g_cfg.torrentInfJump);
     if (st.pMap) {
         game::patch_set(game::P_MAP1, g_cfg.mapCombat);
         game::patch_set(game::P_MAP2, g_cfg.mapCombat);
@@ -923,8 +926,7 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
 }
 
 static bool s_jumpPrev = false;
-static double s_vCancelUntil = 0, s_jumpPressT = -10, s_vBoostUntil = 0, s_vPeakUntil = 0;
-static float s_vPeak = 10.f, s_vPeakCur = 0.f;
+static double s_vCancelUntil = 0, s_jumpPressT = -10;
 
 static bool s_jumpPress = false;
 
@@ -936,41 +938,19 @@ static void tick_jumpkey(double t) {
     if (s_jumpPress) s_jumpPressT = t;
 }
 
+static bool torrent_airborne(uintptr_t ph) {
+    return ph && (mem::rdv<uint8_t>(ph + 0x1D1) == 0 || mem::rdv<uint8_t>(ph + 0x1D2) != 0 || mem::rdv<uint8_t>(ph + 0x1D0) != 0);
+}
+
 static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
     st.fallVelLearned = true;
-    if (!g_cfg.torrentInfJump || !mounted || !tor) return;
-    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
-    bool airborne = ph && mem::rdv<uint8_t>(ph + 0x1D1) == 0;
-    bool press = s_jumpPress;
-    if (airborne) {
-        if (uintptr_t af = game::chr_module(tor, 0x08)) {
-            uint8_t f = mem::rdv<uint8_t>(af + 0x214);
-            if (f & 0x20) mem::wr(af + 0x214, (uint8_t)(f & ~0x20));
-        }
-    }
+    uintptr_t ph = (g_cfg.torrentInfJump && mounted && tor) ? game::chr_module(tor, g_cfg.offPhysMod) : 0;
+    bool airborne = torrent_airborne(ph);
+    game::patch_flag(game::P_HFALL, airborne);
     if (!ph) return;
-    float v = mem::rdv<float>(ph + 0x124, 0.f);
-    if (press && airborne) {
-        if (v < -1.f) {
-            s_vBoostUntil = t + 0.15;
-        } else {
-            s_vPeakUntil = t + 0.5;
-            s_vPeakCur = 0.f;
-            s_vCancelUntil = t + 0.4;
-        }
-    }
-    if (t < s_vPeakUntil) {
-        s_vPeakCur = std::max(s_vPeakCur, v);
-    } else if (s_vPeakCur > 4.f) {
-        s_vPeak = std::clamp(s_vPeakCur, 6.f, 20.f);
-        s_vPeakCur = 0.f;
-    }
-    if (t < s_vBoostUntil) {
-        if (v < s_vPeak) {
-            mem::wr(ph + 0x124, s_vPeak);
-            mem::wr(ph + 0x134, s_vPeak);
-        }
-    } else if (t < s_vCancelUntil) {
+    if (s_jumpPress && airborne) s_vCancelUntil = t + 0.4;
+    if (t < s_vCancelUntil) {
+        float v = mem::rdv<float>(ph + 0x124, 0.f);
         if (v < 0.f) {
             mem::wr(ph + 0x124, 0.f);
             mem::wr(ph + 0x134, 0.f);
@@ -989,7 +969,7 @@ static void tick_jumpheight(uintptr_t tor, bool mounted) {
     uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
     float p[3];
     if (!ph || !game::chr_pos(tor, p)) { s_jhHave = false; return; }
-    bool airborne = mem::rdv<uint8_t>(ph + 0x1D1) == 0;
+    bool airborne = torrent_airborne(ph) || mem::rdv<float>(ph + 0x124, 0.f) > 6.f;
     if (!s_jhHave || !airborne || now() - s_jumpPressT > 1.0) { s_jhLastY = p[1]; s_jhHave = true; return; }
     float dy = p[1] - s_jhLastY;
     if (dy > 0.f && dy < 1.5f) {
@@ -998,6 +978,70 @@ static void tick_jumpheight(uintptr_t tor, bool mounted) {
         s_jhLastY = np[1];
     } else {
         s_jhLastY = p[1];
+    }
+}
+
+static int s_rfKind = -1, s_rfOff = 0, s_rfLogged = 0;
+
+static uintptr_t rf_resolve(uintptr_t chr) {
+    if (!chr || s_rfKind < 0) return 0;
+    uintptr_t mods = mem::ptr(chr + g_cfg.offModules);
+    switch (s_rfKind) {
+    case 0: return mods ? mem::ptr(mods + s_rfOff) : 0;
+    case 1: return mem::ptr(chr + s_rfOff);
+    case 2: { uintptr_t p = mem::ptr(chr + s_rfOff); return p ? mem::ptr(p + 0x68) : 0; }
+    default: { uintptr_t p = mods ? mem::ptr(mods + s_rfOff) : 0; return p ? mem::ptr(p + 0x68) : 0; }
+    }
+}
+
+static void tick_rideguard(uintptr_t pl, uintptr_t tor, Status& st) {
+    static bool tooHot = false;
+    static unsigned long long lastCount = 0;
+    static double lastCountT = 0;
+    double tn = now();
+    if (tn - lastCountT >= 1.0) {
+        unsigned long long c = watch::count();
+        if (lastCountT > 0 && !tooHot && (double)(c - lastCount) / (tn - lastCountT) > 4000.0) {
+            tooHot = true;
+            elog("Garde monture : trop d'acces (%llu/s), garde desactivee", (unsigned long long)((double)(c - lastCount) / (tn - lastCountT)));
+        }
+        lastCount = c;
+        lastCountT = tn;
+    }
+    bool want = !tooHot && g_cfg.rideAnywhere && g_cfg.rideGuard && pl && game::patch_on(game::P_RIDE);
+    if (want && s_rfKind < 0) {
+        uintptr_t slot = game::patch_slot(game::P_RIDE);
+        uintptr_t mods = mem::ptr(pl + g_cfg.offModules);
+        if (slot && mods) {
+            if (mem::ptr(mods + 0x68) == slot) { s_rfKind = 0; s_rfOff = 0x68; }
+            for (int o = 0; o < 0x200 && s_rfKind < 0; o += 8)
+                if (mem::ptr(mods + o) == slot) { s_rfKind = 0; s_rfOff = o; }
+            for (int o = 0; o < 0x400 && s_rfKind < 0; o += 8)
+                if (mem::ptr(pl + o) == slot) { s_rfKind = 1; s_rfOff = o; }
+            for (int o = 0; o < 0x400 && s_rfKind < 0; o += 8) {
+                uintptr_t p = mem::ptr(pl + o);
+                if (p && mem::ptr(p + 0x68) == slot) { s_rfKind = 2; s_rfOff = o; }
+            }
+            for (int o = 0; o < 0x200 && s_rfKind < 0; o += 8) {
+                uintptr_t p = mem::ptr(mods + o);
+                if (p && mem::ptr(p + 0x68) == slot) { s_rfKind = 3; s_rfOff = o; }
+            }
+            static bool logged = false;
+            if (s_rfKind >= 0) elog("Garde monture : drapeau localise (chemin %d, offset 0x%X)", s_rfKind, s_rfOff);
+            else if (!logged) { logged = true; elog("Garde monture : structure %p pas reliee au joueur", (void*)slot); }
+        }
+    }
+    uintptr_t a0 = want ? rf_resolve(pl) : 0, a1 = want ? rf_resolve(tor) : 0;
+    watch::set(a0 ? a0 + 0x36 : 0, a1 ? a1 + 0x36 : 0);
+    st.rideGuard = watch::active();
+    uintptr_t h[32];
+    int n = watch::hits(h, 32);
+    st.rideGuardHits = n;
+    for (; s_rfLogged < n; ++s_rfLogged) {
+        uint8_t b[12] = {};
+        mem::read_raw(h[s_rfLogged] - 12, b, 12);
+        elog("Garde monture : acces depuis RVA 0x%llX (%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X)", (unsigned long long)(h[s_rfLogged] - mem::g_base),
+             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11]);
     }
 }
 
@@ -1032,7 +1076,7 @@ static DWORD WINAPI scan_thread(void*) {
             game::names_load();
             (void)esdTries;
         }
-        if (!pl || !(g_cfg.torrentSpeed || g_cfg.noFallDamage)) { s_torrent = 0; continue; }
+        if (!pl) { s_torrent = 0; continue; }
         uintptr_t tor = s_torrent.load();
         if (tor && game::is_chr(tor)) continue;
         uintptr_t found = game::find_torrent(pl);
@@ -1102,6 +1146,7 @@ static DWORD WINAPI tick_thread(void*) {
             tick_fallvel(t, tor, mounted, st);
             tick_jumpheight(tor, mounted);
             tick_fly(t, pl, tor, mounted, st);
+            tick_rideguard(pl, tor, st);
             pump_delayed();
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;

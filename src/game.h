@@ -57,6 +57,8 @@ enum PatchId { P_MAP1, P_MAP2, P_RIDE, P_HJUMP1, P_HJUMP2, P_HFALL, P_RIDE2, P_C
 bool patch_found(int id);
 bool patch_set(int id, bool on);
 bool patch_on(int id);
+uintptr_t patch_slot(int id);
+void patch_flag(int id, bool on);
 int speffect_state_set(int row, bool zero);
 int cur_anim(uintptr_t chr);
 int anim_queue(uintptr_t chr, int out[10]);

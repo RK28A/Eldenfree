@@ -13,6 +13,8 @@ enum class Act { ResetGreyoll, UnlockMap, UnlockGraces, UnlockBells, DupWeapon, 
 struct Status {
     bool menus = false;
     bool pMap = false, pRide = false, pJump = false, pAir = false, warpOk = false;
+    bool pRide2 = false, rideGuard = false;
+    int rideGuardHits = 0;
     int castLearned = 0;
     bool casting = false;
     bool esd = false;

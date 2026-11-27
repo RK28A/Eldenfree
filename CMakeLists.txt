@@ -19,6 +19,7 @@ endif()
 add_library(EldenFree SHARED
   src/dllmain.cpp
   src/mem.cpp
+  src/watch.cpp
   src/config.cpp
   src/game.cpp
   src/features.cpp
