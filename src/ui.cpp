@@ -411,7 +411,8 @@ static void tab_torrent(const feat::Status& st) {
     hint("Sauter pendant une chute annule la vitesse de chute.");
     card_end();
 
-    card_begin("torjh", "Hauteur de saut", "Multiplie la hauteur des sauts de Torrent (marche avec ou sans le saut infini).");
+    card_begin("torjh", "Hauteur de saut", "Multiplie la hauteur des sauts de Torrent. Ind\xC3\xA9pendant du saut infini.");
+    if (toggle("Hauteur de saut augment\xC3\xA9" "e", &g_cfg.jumpHeightOn)) save();
     ImGui::PushItemWidth(-1);
     ImGui::SliderFloat("##jh", &g_cfg.jumpHeight, 1.f, 10.f, "Hauteur de saut  x%.1f");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
@@ -577,6 +578,8 @@ void draw() {
     ImGui::TextUnformatted("EldenFree");
     ImGui::PopStyleColor();
     ImGui::PopFont();
+    ImGui::SameLine();
+    ImGui::TextColored(C_DIM, EF_VERSION);
     inline_right_pill(st.player ? "En jeu" : st.core ? "En attente de la partie" : "Initialisation", st.player ? C_OK : C_WARN);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8);
     hint("F10 ou maintenir Menu (manette) pour ouvrir/fermer  \xC2\xB7  LB/RB : onglets  \xC2\xB7  A : valider  \xC2\xB7  B : fermer");

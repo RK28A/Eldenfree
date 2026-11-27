@@ -19,6 +19,7 @@ struct Config {
     std::string jumpFlags;
     std::string fallVelField;
     float jumpHeight = 1.0f;
+    bool jumpHeightOn = false;
     bool torrentFly = false;
     bool fastCast = false;
     float castSpeed = 6.0f;

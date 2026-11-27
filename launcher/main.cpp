@@ -206,7 +206,7 @@ int wmain() {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleTitleW(L"EldenFree");
     say("");
-    say("  ELDENFREE  ·  lanceur hors ligne");
+    say("  ELDENFREE " EF_VERSION "  ·  lanceur hors ligne");
     say("  ---------------------------------");
     std::wstring dd = data_dir();
     std::wstring dll = dd + L"\\EldenFree.dll";
@@ -215,7 +215,8 @@ int wmain() {
     DWORD pid = find_process(L"eldenring.exe");
     if (pid && has_module(pid, L"EldenFree.dll")) {
         say("  Le mod est déjà chargé dans le jeu. F10 en jeu.");
-        Sleep(3000);
+        say("  Pour charger une nouvelle version : ferme le jeu puis relance EldenFree.exe.");
+        Sleep(6000);
         return 0;
     }
     if (!extract_dll(dll)) fail("impossible d'écrire EldenFree.dll dans %LOCALAPPDATA%\\EldenFree");

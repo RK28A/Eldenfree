@@ -985,7 +985,7 @@ static float s_jhLastY = 0;
 
 static void tick_jumpheight(uintptr_t tor, bool mounted) {
     float mult = std::clamp(g_cfg.jumpHeight, 1.f, 10.f);
-    if (mult <= 1.001f || !mounted || !tor || s_fly) { s_jhHave = false; return; }
+    if (!g_cfg.jumpHeightOn || mult <= 1.001f || !mounted || !tor || s_fly) { s_jhHave = false; return; }
     uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
     float p[3];
     if (!ph || !game::chr_pos(tor, p)) { s_jhHave = false; return; }

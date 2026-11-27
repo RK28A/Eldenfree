@@ -79,6 +79,7 @@ void cfg_load() {
     c.jumpFlags = gets(L"Torrent", L"DoubleJumpFlags");
     c.fallVelField = gets(L"Torrent", L"FallVelocityField");
     c.jumpHeight = getf(L"Torrent", L"JumpHeight", c.jumpHeight);
+    c.jumpHeightOn = geti(L"Torrent", L"JumpHeightOn", c.jumpHeight > 1.001f);
     c.torrentFly = geti(L"Torrent", L"Fly", c.torrentFly);
     c.graceMenu = geti(L"World", L"GraceMenuButtonsExperimental", c.graceMenu);
     c.offTimeActMod = geti(L"Offsets", L"TimeActModule", c.offTimeActMod);
@@ -144,6 +145,7 @@ void cfg_save() {
     puts_(L"Torrent", L"DoubleJumpFlags", c.jumpFlags);
     puts_(L"Torrent", L"FallVelocityField", c.fallVelField);
     putf(L"Torrent", L"JumpHeight", c.jumpHeight);
+    puti(L"Torrent", L"JumpHeightOn", c.jumpHeightOn);
     puti(L"Torrent", L"Fly", c.torrentFly);
     puti(L"World", L"GraceMenuButtonsExperimental", c.graceMenu);
     puti(L"Offsets", L"TimeActModule", c.offTimeActMod, true);
