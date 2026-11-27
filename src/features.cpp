@@ -742,6 +742,8 @@ static void tick_patches(Status& st) {
     st.pRide = game::patch_found(game::P_RIDE);
     st.pRide2 = game::patch_found(game::P_RIDE2);
     if (st.pRide2) game::patch_set(game::P_RIDE2, g_cfg.rideAnywhere);
+    st.pRide3 = game::patch_found(game::P_RIDE3);
+    if (st.pRide3) game::patch_set(game::P_RIDE3, g_cfg.rideAnywhere);
     st.pJump = game::patch_found(game::P_HJUMP1) && game::patch_found(game::P_HJUMP2);
     st.pAir = false;
     if (st.pMap) {

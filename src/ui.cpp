@@ -677,9 +677,10 @@ static void tab_diag(const feat::Status& st) {
         status_row("Patch carte en combat", st.pMap);
         status_row("Patch Torrent partout", st.pRide);
         status_row("Patch Torrent zones sp\xC3\xA9" "ciales", st.pRide2);
+        status_row("Patch Torrent sur objets (monde ouvert)", st.pRide3);
         char rg[48];
         snprintf(rg, sizeof(rg), "%d acc\xC3\xA8s rep\xC3\xA9r\xC3\xA9s", st.rideGuardHits);
-        status_row("Garde anti-disparition de Torrent", st.rideGuard, st.rideGuard ? rg : "active Torrent partout puis siffle une fois");
+        status_row("Garde anti-disparition de Torrent", st.rideGuard, st.rideGuard ? rg : "d\xC3\xA9sactiv\xC3\xA9" "e (plus n\xC3\xA9" "cessaire)");
         status_row("Patch saut infini", st.pJump);
         char gm[64];
         snprintf(gm, sizeof(gm), "droite %d  \xC2\xB7  gauche %d", (int)st.gemR, (int)st.gemL);
