@@ -353,7 +353,8 @@ static double s_jobT = 0, s_jobNext = 0;
 
 static void job_run() {
     if (s_jobPhase == 1) builds::apply_gear(s_jobBuild, g_cfg.buildStats, s_jobRes);
-    else builds::apply_rest(s_jobBuild, s_jobRes);
+    else if (s_jobPhase == 2) builds::apply_rest(s_jobBuild, s_jobRes);
+    else builds::nudge(s_jobPhase - 3);
 }
 
 void frame_hook() {
@@ -414,9 +415,10 @@ static void tick_builds(double t, Status& st) {
     if (state == 0 && t >= s_jobNext) { s_jobT = t; s_jobState = 1; return; }
     if (state == 1 && t - s_jobT > 1.0) { frame_hook(); state = s_jobState.load(); }
     if (state != 3) return;
-    if (s_jobPhase == 1 && !s_jobRes.failed) {
-        s_jobPhase = 2;
-        s_jobNext = t + 0.4;
+    if (s_jobPhase < 4 && !s_jobRes.failed) {
+        static const double delay[5] = {0, 0, 0.4, 0.5, 0.25};
+        ++s_jobPhase;
+        s_jobNext = t + delay[s_jobPhase];
         s_jobState = 0;
         return;
     }
@@ -1249,8 +1251,8 @@ static void tick_rideguard(uintptr_t pl, uintptr_t tor, Status& st) {
                 if (p && mem::ptr(p + 0x68) == slot) { s_rfKind = 3; s_rfOff = o; }
             }
             static bool logged = false;
-            if (s_rfKind >= 0) elog("Garde monture : drapeau localise (chemin %d, offset 0x%X)", s_rfKind, s_rfOff);
-            else if (!logged) { logged = true; elog("Garde monture : structure %p pas reliee au joueur", (void*)slot); }
+            if (s_rfKind >= 0) elog("Garde monture : drapeau localise (chemin %d, offset 0x%X), structure %p, 1er mot %p", s_rfKind, s_rfOff, (void*)slot, (void*)mem::rdv<uintptr_t>(slot));
+            else if (!logged) { logged = true; elog("Garde monture : structure %p pas reliee au joueur, 1er mot %p, drapeau %d", (void*)slot, (void*)mem::rdv<uintptr_t>(slot), (int)mem::rdv<uint8_t>(slot + 0x36)); }
         }
     }
     uintptr_t a0 = want ? rf_resolve(pl) : 0, a1 = want ? rf_resolve(tor) : 0;
@@ -1266,6 +1268,16 @@ static void tick_rideguard(uintptr_t pl, uintptr_t tor, Status& st) {
         int o = 0;
         for (int k = 0; k < 32; ++k) o += snprintf(hex + o, sizeof(hex) - o, "%s%02X", k == 16 ? " | " : (k ? " " : ""), b[k]);
         elog("Garde monture : acces RVA 0x%llX : %s", (unsigned long long)(h[s_rfLogged] - mem::g_base), hex);
+    }
+    static int srcLogged = 0;
+    uintptr_t src[16];
+    for (int ns = watch::sources(src, 16); srcLogged < ns; ++srcLogged) {
+        uint8_t b[0x40] = {};
+        mem::read_raw(src[srcLogged], b, sizeof(b));
+        char hex[200];
+        int o = 0;
+        for (int k = 0; k < 0x40; ++k) o += snprintf(hex + o, sizeof(hex) - o, "%02X", b[k]);
+        elog("Garde monture : origine de l'interdiction %p effacee : %s", (void*)src[srcLogged], hex);
     }
     static bool wasMounted = false;
     static unsigned long long lastWrites = 0;

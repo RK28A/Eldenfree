@@ -9,6 +9,7 @@ bool active();
 int hits(uintptr_t* out, int max);
 bool hit_write(int i);
 unsigned long long writes();
+int sources(uintptr_t* out, int max);
 unsigned long long count();
 
 }

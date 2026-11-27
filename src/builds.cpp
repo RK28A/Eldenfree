@@ -524,4 +524,22 @@ void apply_rest(const Build& b, Result& r) {
     }
 }
 
+void nudge(int step) {
+    static int32_t sl = -1, sr = -1;
+    uintptr_t P = game::pgd();
+    if (!P || !game::player()) return;
+    if (step == 0) {
+        sl = rdv<int32_t>(P + 0x328, -1);
+        sr = rdv<int32_t>(P + 0x32C, -1);
+        if (sl < 0 || sl > 2 || sr < 0 || sr > 2) { sl = sr = -1; return; }
+        mem::wr(P + 0x328, (int32_t)((sl + 1) % 3));
+        mem::wr(P + 0x32C, (int32_t)((sr + 1) % 3));
+        elog("Builds : rafraichissement des armes (emplacements %d/%d)", sl, sr);
+    } else if (sl >= 0) {
+        mem::wr(P + 0x328, sl);
+        mem::wr(P + 0x32C, sr);
+        sl = sr = -1;
+    }
+}
+
 }

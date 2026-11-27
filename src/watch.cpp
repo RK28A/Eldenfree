@@ -11,6 +11,8 @@ static std::atomic<uintptr_t> s_addr[2], s_vt[2];
 static std::atomic<uintptr_t> s_hits[32];
 static std::atomic<bool> s_hitW[32];
 static std::atomic<unsigned long long> s_writes{0};
+static std::atomic<uintptr_t> s_src[16];
+static std::atomic<int> s_nsrc{0};
 static std::atomic<int> s_nh{0};
 static std::atomic<unsigned long long> s_count{0};
 static DWORD s_tls = TLS_OUT_OF_INDEXES;
@@ -40,6 +42,40 @@ static void zero_reg8(CONTEXT* c, int reg, bool rex) {
         return;
     }
     if (r64[reg]) *r64[reg] &= ~0xFFull;
+}
+
+static DWORD64* reg64(CONTEXT* c, int r) {
+    DWORD64* t[16] = {&c->Rax, &c->Rcx, &c->Rdx, &c->Rbx, &c->Rsp, &c->Rbp, &c->Rsi, &c->Rdi,
+                      &c->R8, &c->R9, &c->R10, &c->R11, &c->R12, &c->R13, &c->R14, &c->R15};
+    return t[r & 15];
+}
+
+static void clear_origin(CONTEXT* c, uintptr_t watched) {
+    uint8_t p[40];
+    if (!mem::read_raw((uintptr_t)c->Rip - 40, p, 40)) return;
+    for (int i = 39 - 3; i >= 1; --i) {
+        int modrm = -1, rex = 0;
+        if (p[i] == 0x8A && (p[i + 1] & 0xC0) == 0x40 && (p[i + 1] & 7) != 4 && p[i + 2] == 0x36) {
+            modrm = p[i + 1];
+            if ((p[i - 1] & 0xF0) == 0x40) rex = p[i - 1];
+        } else if (i >= 2 && p[i - 1] == 0x0F && p[i] == 0xB6 && (p[i + 1] & 0xC0) == 0x40 && (p[i + 1] & 7) != 4 && p[i + 2] == 0x36) {
+            modrm = p[i + 1];
+            if ((p[i - 2] & 0xF0) == 0x40) rex = p[i - 2];
+        }
+        if (modrm < 0) continue;
+        uintptr_t base = (uintptr_t)*reg64(c, (modrm & 7) | ((rex & 1) ? 8 : 0));
+        if (!mem::plausible(base) || base + 0x36 == watched) return;
+        uint8_t b = 0;
+        if (!mem::read_raw(base + 0x36, &b, 1) || b != 1) return;
+        b = 0;
+        mem::write_raw(base + 0x36, &b, 1);
+        int n = s_nsrc.load();
+        if (n < 16) {
+            s_src[n].store(base);
+            s_nsrc.store(n + 1);
+        }
+        return;
+    }
 }
 
 static void zero_source(CONTEXT* c) {
@@ -78,6 +114,7 @@ static LONG CALLBACK veh(EXCEPTION_POINTERS* ep) {
             b = 0;
             mem::write_raw(a, &b, 1);
             zero_source(c);
+            clear_origin(c, a);
             s_writes.fetch_add(1, std::memory_order_relaxed);
         }
         record((uintptr_t)c->Rip, w);
@@ -160,6 +197,13 @@ unsigned long long count() { return s_count.load(); }
 bool hit_write(int i) { return i >= 0 && i < 32 && s_hitW[i].load(); }
 
 unsigned long long writes() { return s_writes.load(); }
+
+int sources(uintptr_t* out, int max) {
+    int n = s_nsrc.load();
+    if (n > max) n = max;
+    for (int i = 0; i < n; ++i) out[i] = s_src[i].load();
+    return n;
+}
 
 int hits(uintptr_t* out, int max) {
     int n = s_nh.load();

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "builds.h"
 #include "overlay.h"
 #include "features.h"
@@ -624,10 +625,12 @@ void draw() {
     wasPad = padNow;
     feat::Status st = feat::status();
     feat::g_wantWeapons = false;
-    ImVec2 size(600, 640);
+    ImVec2 size(std::clamp(io.DisplaySize.x * 0.55f, 900.f, 1150.f), std::clamp(io.DisplaySize.y * 0.78f, 640.f, 1000.f));
+    if (size.x > io.DisplaySize.x * 0.96f) size.x = io.DisplaySize.x * 0.96f;
+    if (size.y > io.DisplaySize.y * 0.94f) size.y = io.DisplaySize.y * 0.94f;
     ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSizeConstraints(ImVec2(480, 420), ImVec2(1200, 1400));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(480, 420), ImVec2(1800, 1400));
     ImGui::Begin("EldenFree", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();

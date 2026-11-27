@@ -38,5 +38,6 @@ bool ready();
 bool capture(Build& b);
 void apply_gear(const Build& b, bool stats, Result& r);
 void apply_rest(const Build& b, Result& r);
+void nudge(int step);
 
 }
