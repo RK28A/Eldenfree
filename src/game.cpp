@@ -1316,4 +1316,69 @@ uint32_t find_goods(const std::vector<std::wstring>& needles) {
     return found;
 }
 
+
+uint32_t find_name(const std::vector<int>& fmgIdx, const std::vector<std::vector<std::wstring>>& groups) {
+    uintptr_t repo = ptr(g.msgRepo);
+    uintptr_t table = repo ? ptr(repo + 8) : 0;
+    if (!table) return 0;
+    std::vector<std::vector<std::wstring>> low;
+    for (auto& gr : groups) {
+        low.emplace_back();
+        for (auto& n : gr) low.back().push_back(lower(n));
+    }
+    uint32_t found = 0;
+    for (int idx : fmgIdx) {
+        uintptr_t f = ptr(table + (uintptr_t)idx * 8);
+        if (!f || !fmg_header(f)) continue;
+        fmg_ids(f, [&](uint32_t id) {
+            if (found) return;
+            std::wstring s;
+            if (!fmg_get(f, id, s)) return;
+            s = lower(s);
+            for (auto& gr : low) {
+                bool all = true;
+                for (auto& n : gr)
+                    if (s.find(n) == std::wstring::npos) { all = false; break; }
+                if (all) { found = id; return; }
+            }
+        });
+        if (found) break;
+    }
+    return found;
+}
+
+static uintptr_t s_spAdd = 0, s_spRemove = 0;
+static bool s_spScanned = false;
+
+static void sp_scan() {
+    if (s_spScanned) return;
+    s_spScanned = true;
+    uintptr_t a = aob("0F 28 0D ?? ?? ?? ?? ?? 8D ?? ?? 0F 29 ?? ?? ?? 0F B6 D8");
+    s_spAdd = a ? a - 0x1D : 0;
+    s_spRemove = aob("48 83 EC 28 8B C2 48 8B 51 08 48 85 D2 ?? ?? 90");
+    elog("SpEffect add %p remove %p", (void*)s_spAdd, (void*)s_spRemove);
+}
+
+bool speffect_ready() {
+    sp_scan();
+    return s_spAdd && s_spRemove;
+}
+
+bool speffect_add(uintptr_t chr, int id) {
+    sp_scan();
+    if (!s_spAdd || !chr) return false;
+    using Fn = uint64_t (*)(uintptr_t, int64_t, int64_t);
+    ((Fn)s_spAdd)(chr, id, 1);
+    return true;
+}
+
+bool speffect_remove(uintptr_t chr, int id) {
+    sp_scan();
+    uintptr_t se = chr ? ptr(chr + 0x178) : 0;
+    if (!s_spRemove || !se) return false;
+    using Fn = uint64_t (*)(uintptr_t, int64_t);
+    ((Fn)s_spRemove)(se, id);
+    return true;
+}
+
 }

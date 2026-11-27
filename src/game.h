@@ -81,5 +81,9 @@ bool names_ready();
 std::string weapon_name(uint32_t id);
 bool goods_name(uint32_t id, std::wstring& out);
 uint32_t find_goods(const std::vector<std::wstring>& needles);
+uint32_t find_name(const std::vector<int>& fmgIdx, const std::vector<std::vector<std::wstring>>& groups);
+bool speffect_add(uintptr_t chr, int id);
+bool speffect_remove(uintptr_t chr, int id);
+bool speffect_ready();
 
 }

@@ -454,7 +454,7 @@ static void tab_plus(const feat::Status& st) {
     right_pill(st.flailActive ? "En rotation" : st.flailHeld ? "Fl\xC3\xA9" "au en main" : "Pas de fl\xC3\xA9" "au", st.flailActive ? C_WARN : st.flailHeld ? C_OK : C_DIM);
     if (toggle("Activer", &g_cfg.flailSpin)) save();
     ImGui::PushItemWidth(-1);
-    ImGui::SliderFloat("##fm", &g_cfg.flailMult, 1.f, 20.f, "Vitesse de rotation  x%.1f");
+    ImGui::SliderFloat("##fm", &g_cfg.flailMult, 1.f, 50.f, "Vitesse de rotation  x%.1f");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     ImGui::PopItemWidth();
     char fb[96];
@@ -475,8 +475,7 @@ static void tab_plus(const feat::Status& st) {
     ImGui::SliderFloat("##wm", &g_cfg.weightMult, 1.f, 10.f, "Multiplicateur  x%.1f");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     ImGui::PopItemWidth();
-    snprintf(b, sizeof(b), "Charge de base : %.1f", st.equipLoadBase);
-    hint(b);
+    hint(st.equipLoadBase > 0 ? "Appliqu\xC3\xA9 comme un vrai effet de jeu (m\xC3\xAAme m\xC3\xA9" "canisme que le talisman de la Jarre g\xC3\xA9" "ante)." : "Effet du talisman de la Jarre g\xC3\xA9" "ante introuvable pour l'instant (charge ta partie).");
     card_end();
 }
 

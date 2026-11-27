@@ -297,7 +297,7 @@ static void on_grace_pick(int which) { post_delayed(Act::OpenMenu, which == 1 ? 
 static void act_bloodboil() {
     if (!game::player()) { msg("Charge ta partie d'abord"); return; }
     if (!game::g.itemGib || !game::g.mapItemMan) { msg("Fonction d'obtention introuvable"); return; }
-    uint32_t id = game::find_goods({L"sang bouillant", L"bloodboil"});
+    uint32_t id = game::find_name({10, 111, 319, 419}, {{L"bloodboil"}, {L"ar\u00f4me", L"bouill"}, {L"arome", L"bouill"}, {L"sang", L"bouill"}});
     if (!id) { msg("Ar\xC3\xB4me de sang bouillant introuvable dans les textes du jeu"); return; }
     auto gt = game::param_tables("EQUIP_PARAM_GOODS_ST");
     uintptr_t row = gt.empty() ? 0 : game::param_find(gt[0], (int32_t)id);
@@ -600,6 +600,7 @@ static void cast_save() {
 }
 
 static int s_animCur = -1, s_animPrev = -1;
+static float s_prevAnimSpeed = 0.f;
 static double s_animCurT = 0, s_animPrevT = 0;
 
 static bool selected_spell_is_buff() {
@@ -630,11 +631,35 @@ static void tick_cast(uintptr_t pl, Status& st) {
     int hp = 0, mhp = 0;
     game::chr_hp(pl, hp, mhp);
     int anim = game::cur_anim(pl);
-    if (anim != s_animCur) {
-        s_animPrev = s_animCur;
-        s_animPrevT = s_animCurT;
-        s_animCur = anim;
-        s_animCurT = t;
+    {
+        static float ap[3];
+        static bool apHave = false;
+        float p[3];
+        bool hp_ = game::chr_pos(pl, p);
+        if (anim != s_animCur) {
+            float sp = 0.f;
+            if (hp_ && apHave && t - s_animCurT > 0.05) {
+                float dx = p[0] - ap[0], dz = p[2] - ap[2];
+                sp = std::sqrt(dx * dx + dz * dz) / (float)(t - s_animCurT);
+            }
+            s_prevAnimSpeed = sp;
+            s_animPrev = s_animCur;
+            s_animPrevT = s_animCurT;
+            s_animCur = anim;
+            s_animCurT = t;
+            if (hp_) { memcpy(ap, p, 12); apHave = true; }
+        }
+        if (s_castActive && hp_ && apHave && t - s_animCurT > 0.3) {
+            float dx = p[0] - ap[0], dz = p[2] - ap[2];
+            float base = std::sqrt(dx * dx + dz * dz) / (float)(t - s_animCurT) / std::max(g_cfg.castSpeed, 1.f);
+            if (base > 2.5f && (s_castAnims.erase(anim) | s_aowBuff.erase(anim))) {
+                s_aowNo.insert(anim);
+                elog("Animation %d retiree du cast rapide (deplacement)", anim);
+                g_cfg.aowBuff = join_set(s_aowBuff);
+                g_cfg.aowNo = join_set(s_aowNo);
+                cast_save();
+            }
+        }
     }
     if (g_cfg.fastCast && anim > 0 && s_lastFp && fp < s_lastFp && hp >= s_lastCastHp) {
         int drop = (int)(s_lastFp - fp);
@@ -657,7 +682,7 @@ static void tick_cast(uintptr_t pl, Status& st) {
         if (row && isSpell) {
             {
                 bool changed = s_castAnims.insert(anim).second;
-                if (s_animPrev > 0 && s_animCurT - s_animPrevT < 1.5) changed |= s_castAnims.insert(s_animPrev).second;
+                if (s_animPrev > 0 && s_animCurT - s_animPrevT < 1.5 && s_prevAnimSpeed < 1.5f) changed |= s_castAnims.insert(s_animPrev).second;
                 if (changed) {
                     elog("Sort %d : animations %d / %d apprises", spell, s_animPrev, anim);
                     cast_save();
@@ -1057,26 +1082,46 @@ static void tick_menus(double t, uintptr_t pl, Status& st) {
     }
 }
 
-static float s_wBase = 0, s_wLast = 0;
+static int s_wSp = -1;
+static float s_wOrig = 0.f;
+static bool s_wTried = false, s_wApplied = false;
 
 static void tick_weight(uintptr_t pl, Status& st) {
     uintptr_t P = game::pgd();
-    if (!pl || !P) { s_wLast = 0; return; }
-    uintptr_t a = P + 0x98C;
-    float cur = mem::rdv<float>(a, 0.f);
-    if (!(cur > 1.f && cur < 5000.f)) return;
-    if (s_wLast == 0.f || std::fabs(cur - s_wLast) > 0.01f) s_wBase = cur;
+    if (P) st.equipLoad = mem::rdv<float>(P + 0x98C, 0.f);
+    if (!pl || !game::names_ready() || !game::params_ready()) return;
+    if (!s_wTried) {
+        s_wTried = true;
+        uint32_t acc = game::find_name({13, 113, 316, 416}, {{L"great-jar"}, {L"grande", L"jarre"}, {L"jarre", L"géante"}, {L"jarre", L"geante"}, {L"arsenal"}});
+        auto at = game::param_tables("EQUIP_PARAM_ACCESSORY_ST");
+        uintptr_t row = (acc && !at.empty()) ? game::param_find(at[0], (int32_t)acc) : 0;
+        s_wSp = row ? mem::rdv<int32_t>(row + 4, -1) : -1;
+        auto stb = game::param_tables("SP_EFFECT_PARAM_ST");
+        uintptr_t sp = (s_wSp > 0 && !stb.empty()) ? game::param_find(stb[0], s_wSp) : 0;
+        if (sp) s_wOrig = mem::rdv<float>(sp + 0xE4, 1.f);
+        elog("Charge : talisman %u, speffect %d, taux d'origine %.2f", acc, s_wSp, s_wOrig);
+        if (!sp) s_wSp = -1;
+    }
+    st.equipLoadBase = s_wSp;
+    if (s_wSp <= 0 || !game::speffect_ready()) return;
+    auto stb = game::param_tables("SP_EFFECT_PARAM_ST");
+    uintptr_t sp = game::param_find(stb[0], s_wSp);
+    if (!sp) return;
     float mult = std::clamp(g_cfg.weightMult, 1.f, 10.f);
     if (mult > 1.001f) {
-        float want = s_wBase * mult;
-        if (std::fabs(cur - want) > 0.01f) mem::wr(a, want);
-        s_wLast = want;
-    } else if (s_wLast != 0.f) {
-        if (std::fabs(cur - s_wLast) <= 0.01f) mem::wr(a, s_wBase);
-        s_wLast = 0;
+        if (std::fabs(mem::rdv<float>(sp + 0xE4) - mult) > 0.001f) mem::wr(sp + 0xE4, mult);
+        std::vector<std::pair<int, float>> fx;
+        game::speffects(pl, fx);
+        bool has = false;
+        for (auto& e : fx)
+            if (e.first == s_wSp) { has = true; break; }
+        if (!has) game::speffect_add(pl, s_wSp);
+        s_wApplied = true;
+    } else if (s_wApplied) {
+        mem::wr(sp + 0xE4, s_wOrig);
+        game::speffect_remove(pl, s_wSp);
+        s_wApplied = false;
     }
-    st.equipLoad = mem::rdv<float>(a, 0.f);
-    st.equipLoadBase = s_wBase;
 }
 
 static bool s_flailLoaded = false, s_flailOn = false;
@@ -1131,32 +1176,17 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
         }
         energySet = false;
     }
-    float mult = std::clamp(g_cfg.flailMult, 1.f, 20.f);
+    float mult = std::clamp(g_cfg.flailMult, 1.f, 50.f);
     bool want = g_cfg.flailSpin && s_rwFlail && anim > 0 && s_flailAnims.count(anim);
-    static bool posHave = false;
-    static float posLast[3];
+    uintptr_t fph = game::chr_module(pl, g_cfg.offPhysMod);
     if (want) {
         game::set_anim_speed(pl, mult);
+        if (fph) mem::wr(fph + 0x1C4, 1.f / mult);
         s_flailOn = true;
-        float p[3];
-        if (game::chr_pos(pl, p)) {
-            if (!posHave) { memcpy(posLast, p, 12); posHave = true; }
-            else {
-                float dx = p[0] - posLast[0], dz = p[2] - posLast[2];
-                if (dx * dx + dz * dz > 25.f) { memcpy(posLast, p, 12); }
-                else if (dx != 0.f || dz != 0.f) {
-                    float np[3] = {posLast[0] + dx / mult, p[1], posLast[2] + dz / mult};
-                    game::chr_set_xz(pl, np[0], np[2]);
-                    memcpy(posLast, np, 12);
-                }
-            }
-        }
-    } else {
-        posHave = false;
-        if (s_flailOn) {
-            game::set_anim_speed(pl, 1.f);
-            s_flailOn = false;
-        }
+    } else if (s_flailOn) {
+        game::set_anim_speed(pl, 1.f);
+        if (fph) mem::wr(fph + 0x1C4, 1.f);
+        s_flailOn = false;
     }
     st.flailActive = s_flailOn;
     return s_flailOn;
@@ -1167,7 +1197,7 @@ static std::vector<VCand> s_vCands;
 static int s_vReg = -1, s_vOff = -1;
 static bool s_vLoaded = false, s_jumpPrev = false;
 static float s_vLastY = 0, s_vVy = 0;
-static double s_vLastT = 0, s_vCancelUntil = 0;
+static double s_vLastT = 0, s_vCancelUntil = 0, s_jumpPressT = -10;
 
 static uintptr_t vel_region(uintptr_t tor, int reg) {
     uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
@@ -1225,15 +1255,16 @@ static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
     }
     bool fg = GetForegroundWindow() == overlay::hwnd();
     bool jump = fg && !g_menuOpen && ((GetAsyncKeyState(g_cfg.jumpKey) & 0x8000) || (overlay::pad_buttons() & XINPUT_GAMEPAD_A));
-    if (jump && !s_jumpPrev && airborne) s_vCancelUntil = t + 0.15;
+    if (jump && !s_jumpPrev) s_jumpPressT = t;
+    if (jump && !s_jumpPrev && airborne) s_vCancelUntil = t + 0.4;
     s_jumpPrev = jump;
     if (t < s_vCancelUntil && s_vReg >= 0) {
         uintptr_t b = vel_region(tor, s_vReg);
         if (b) {
             float v = mem::rdv<float>(b + s_vOff, 0.f);
             if (v < 0.f) mem::wr(b + s_vOff, 0.f);
+            else s_vCancelUntil = 0;
         }
-        if (uintptr_t f = game::chr_module(tor, g_cfg.offFallMod)) mem::wr(f + g_cfg.offFallTimer, 0.f);
     }
 }
 
@@ -1251,7 +1282,7 @@ static void tick_jumpheight(uintptr_t tor, bool mounted) {
         uintptr_t b = vel_region(tor, s_vReg);
         float v = b ? mem::rdv<float>(b + s_vOff, 0.f) : 0.f;
         if (!airborne && v <= 0.5f) s_jhBoosted = false;
-        if (v > 2.f && s_jhPrevV <= 2.f && !s_jhBoosted && b) {
+        if (v > 2.f && s_jhPrevV <= 2.f && !s_jhBoosted && b && now() - s_jumpPressT < 0.5) {
             mem::wr(b + s_vOff, v * std::sqrt(mult));
             s_jhBoosted = true;
         }
@@ -1259,7 +1290,7 @@ static void tick_jumpheight(uintptr_t tor, bool mounted) {
         s_jhPrevV = v;
         return;
     }
-    if (!airborne) { s_jhHave = false; return; }
+    if (!airborne || now() - s_jumpPressT > 1.2) { s_jhHave = false; return; }
     if (!s_jhHave) { s_jhLastY = p[1]; s_jhHave = true; return; }
     float dy = p[1] - s_jhLastY;
     if (dy > 0.f && dy < 5.f) {
