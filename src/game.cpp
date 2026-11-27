@@ -466,8 +466,25 @@ static const char* kPatchAlt[P_COUNT] = {
 static void patch_scan(CodePatch& p) {
     if (p.scanned) return;
     p.scanned = true;
-    uintptr_t a = aob(p.aob);
     int idx = (int)(&p - s_patches);
+    if (idx == P_MAP2) {
+        patch_scan(s_patches[P_MAP1]);
+        uintptr_t ref = s_patches[P_MAP1].addr;
+        static uintptr_t hits[256];
+        size_t n = aob_all(p.aob, hits, 256);
+        uintptr_t best = 0;
+        uint64_t bestD = ~0ull;
+        for (size_t i = 0; i < n && ref; ++i) {
+            uint64_t d = hits[i] > ref ? hits[i] - ref : ref - hits[i];
+            if (d < bestD) { bestD = d; best = hits[i]; }
+        }
+        if (bestD > 0x2000) best = 0;
+        p.addr = best;
+        elog("Patch %-13s %s -> %p (%zu candidats, distance 0x%llX)", p.name, p.addr ? "ok" : "INTROUVABLE", (void*)p.addr, n,
+             (unsigned long long)(bestD == ~0ull ? 0 : bestD));
+        return;
+    }
+    uintptr_t a = aob(p.aob);
     if (!a && kPatchAlt[idx]) a = aob(kPatchAlt[idx]);
     p.addr = a ? a + p.off : 0;
     elog("Patch %-13s %s -> %p", p.name, p.addr ? "ok" : "INTROUVABLE", (void*)p.addr);
