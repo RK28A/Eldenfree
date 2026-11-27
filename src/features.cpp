@@ -605,6 +605,7 @@ static bool selected_spell_is_buff() {
 
 static int s_aowPend = -1;
 static double s_aowPendT = 0;
+static float s_aowPos[3], s_aowMaxDisp = 0;
 static std::vector<std::pair<int, float>> s_aowFx;
 
 static void tick_cast(uintptr_t pl, Status& st) {
@@ -643,6 +644,8 @@ static void tick_cast(uintptr_t pl, Status& st) {
         if (!isSpell && s_aowPend < 0 && !s_aowBuff.count(anim) && !s_castAnims.count(anim)) {
             s_aowPend = anim;
             s_aowPendT = t;
+            s_aowMaxDisp = 0;
+            game::chr_pos(pl, s_aowPos);
             game::speffects(pl, s_aowFx);
         }
         if (row && isSpell) {
@@ -656,24 +659,32 @@ static void tick_cast(uintptr_t pl, Status& st) {
             }
         }
     }
+    if (s_aowPend > 0) {
+        float p[3];
+        if (game::chr_pos(pl, p)) {
+            float dx = p[0] - s_aowPos[0], dz = p[2] - s_aowPos[2];
+            s_aowMaxDisp = std::max(s_aowMaxDisp, std::sqrt(dx * dx + dz * dz));
+        }
+    }
     if (s_aowPend > 0 && t - s_aowPendT > 3.0) {
         std::vector<std::pair<int, float>> fx;
         game::speffects(pl, fx);
         bool buff = false;
         for (auto& e : fx) {
-            if ((e.second >= 0.f && e.second < 5.f) || e.second > 900.f) continue;
+            if (e.second < 15.f || e.second > 900.f) continue;
             bool known = false;
             for (auto& o : s_aowFx)
                 if (o.first == e.first) { known = true; break; }
             if (!known) { buff = true; break; }
         }
+        if (s_aowMaxDisp > 1.5f) buff = false;
         if (buff) {
             s_aowBuff.insert(s_aowPend);
             s_aowNo.erase(s_aowPend);
         } else {
             s_aowNo.insert(s_aowPend);
         }
-        elog("Cendre de guerre anim %d : %s", s_aowPend, buff ? "buff" : "attaque");
+        elog("Cendre de guerre anim %d : %s (deplacement %.1f m)", s_aowPend, buff ? "buff" : "attaque", s_aowMaxDisp);
         s_aowPend = -1;
         g_cfg.aowBuff = join_set(s_aowBuff);
         g_cfg.aowNo = join_set(s_aowNo);
@@ -691,6 +702,25 @@ static void tick_cast(uintptr_t pl, Status& st) {
     bool physick = physNow && anim > 0 && physAnims.count(anim);
     s_lastFp = fp;
     s_lastCastHp = hp;
+    static int aowRun = -1;
+    static float aowRunPos[3];
+    if (anim > 0 && s_aowBuff.count(anim)) {
+        float p[3];
+        if (aowRun != anim) { aowRun = anim; game::chr_pos(pl, aowRunPos); }
+        else if (game::chr_pos(pl, p)) {
+            float dx = p[0] - aowRunPos[0], dz = p[2] - aowRunPos[2];
+            if (dx * dx + dz * dz > 2.5f * 2.5f) {
+                s_aowBuff.erase(anim);
+                s_aowNo.insert(anim);
+                g_cfg.aowBuff = join_set(s_aowBuff);
+                g_cfg.aowNo = join_set(s_aowNo);
+                cfg_save();
+                elog("Cendre de guerre anim %d retiree des buffs (deplacement)", anim);
+            }
+        }
+    } else {
+        aowRun = -1;
+    }
     bool want = g_cfg.fastCast && anim > 0 &&
                 ((s_castAnims.count(anim) && selected_spell_is_buff()) || s_aowBuff.count(anim) || physick);
     if (want) {

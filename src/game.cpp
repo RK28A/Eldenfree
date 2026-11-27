@@ -425,7 +425,7 @@ struct CodePatch {
 static CodePatch s_patches[P_COUNT] = {
     {"MapInCombat1", "E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 ?? ?? ?? ?? 75 ?? 83 E6 FE", 0, {0x48, 0x31, 0xC0, 0x90, 0x90}, false, 0, 0, {}, 0, false, false},
     {"MapInCombat2", "74 ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 48 89 45 ?? 48 8D 4D ?? E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 48 83 BF", 0, {0xEB}, false, 0, 0, {}, 0, false, false},
-    {"RideAnywhere", "48 8B 40 68 80 78 36 00 0F 95 C0", 4, {0x30, 0xC0, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, 0, {}, 0, false, false},
+    {"RideAnywhere", "48 8B 40 68 80 78 36 00 0F 95 C0", 0, {0x48, 0x8B, 0x40, 0x68, 0xC6, 0x40, 0x36, 0x00, 0x80, 0x78, 0x36, 0x00}, true, 0, 0, {}, 0, false, false},
     {"HorseJump1", "0F B6 81 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? 80 B9", 0, {0xB0, 0x01, 0x90, 0x90, 0x90, 0x90, 0x90}, false, 0, 0, {}, 0, false, false},
     {"HorseJump2", "88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 88 87", 0, {}, true, 1, 0, {}, 0, false, false},
     {"HorseAirJump", "E8 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 48 8B CF 88 87", 5, {}, true, 0, 0, {}, 0, false, false},
@@ -493,27 +493,32 @@ bool patch_set(int id, bool on) {
     if (p.on == on) return true;
     if (on) {
         if (p.cave) {
-            const size_t n = 6;
+            const size_t n = p.bytes.empty() ? 6 : 8;
             p.orig.resize(n);
             memcpy(p.orig.data(), (void*)p.addr, n);
             if (!p.caveMem) p.caveMem = alloc_near(p.addr);
             if (!p.caveMem) return false;
-            uint8_t c[32];
+            uint8_t c[64];
             size_t k = 0;
-            c[k++] = 0xB0;
-            c[k++] = p.caveAl;
-            memcpy(c + k, p.orig.data(), n);
-            k += n;
+            if (p.bytes.empty()) {
+                c[k++] = 0xB0;
+                c[k++] = p.caveAl;
+                memcpy(c + k, p.orig.data(), n);
+                k += n;
+            } else {
+                memcpy(c + k, p.bytes.data(), p.bytes.size());
+                k += p.bytes.size();
+            }
             c[k++] = 0xE9;
             int32_t back = (int32_t)((p.addr + n) - (p.caveMem + k + 4));
             memcpy(c + k, &back, 4);
             k += 4;
             memcpy((void*)p.caveMem, c, k);
             FlushInstructionCache(GetCurrentProcess(), (void*)p.caveMem, k);
-            uint8_t j[6] = {0xE9, 0, 0, 0, 0, 0x90};
+            uint8_t j[8] = {0xE9, 0, 0, 0, 0, 0x90, 0x90, 0x90};
             int32_t to = (int32_t)(p.caveMem - (p.addr + 5));
             memcpy(j + 1, &to, 4);
-            if (!code_write(p.addr, j, 6)) return false;
+            if (!code_write(p.addr, j, n)) return false;
         } else {
             p.orig.resize(p.bytes.size());
             memcpy(p.orig.data(), (void*)p.addr, p.bytes.size());
