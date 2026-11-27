@@ -69,6 +69,8 @@ void cfg_load() {
     c.weightMult = getf(L"Plus", L"EquipLoadMult", c.weightMult);
     c.flailSpin = geti(L"Plus", L"FlailSpin", c.flailSpin);
     c.flailMult = getf(L"Plus", L"FlailSpinMult", c.flailMult);
+    if (c.flailMult < 1.f) c.flailMult = 1.f;
+    if (c.flailMult > 20.f) c.flailMult = 20.f;
     c.flailAnims = gets(L"Plus", L"FlailSpinAnims");
     c.castAnims = gets(L"Player", L"CastSpellAnimsV2");
     c.castAnimsNo = gets(L"Player", L"CastSpellAnimsAttack");

@@ -1085,13 +1085,47 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
         elog("Fleau : animation %d apprise", anim);
         flail_save();
     }
+    static bool energySet = false;
+    static uint8_t energyPrev = 0;
+    static uintptr_t energyChr = 0;
+    uintptr_t dm = game::chr_module(pl, g_cfg.offDataMod);
+    if (g_cfg.flailSpin && s_rwFlail && dm) {
+        uint8_t f = mem::rdv<uint8_t>(dm + g_cfg.offChrFlags);
+        if (!energySet) { energyPrev = f & 0x0C; energySet = true; energyChr = pl; }
+        if ((f & 0x0C) != 0x0C) mem::wr(dm + g_cfg.offChrFlags, (uint8_t)(f | 0x0C));
+    } else if (energySet) {
+        if (energyChr == pl && dm) {
+            uint8_t f = mem::rdv<uint8_t>(dm + g_cfg.offChrFlags);
+            mem::wr(dm + g_cfg.offChrFlags, (uint8_t)((f & ~0x0C) | energyPrev));
+        }
+        energySet = false;
+    }
+    float mult = std::clamp(g_cfg.flailMult, 1.f, 20.f);
     bool want = g_cfg.flailSpin && s_rwFlail && anim > 0 && s_flailAnims.count(anim);
+    static bool posHave = false;
+    static float posLast[3];
     if (want) {
-        game::set_anim_speed(pl, std::clamp(g_cfg.flailMult, 1.f, 10.f));
+        game::set_anim_speed(pl, mult);
         s_flailOn = true;
-    } else if (s_flailOn) {
-        game::set_anim_speed(pl, 1.f);
-        s_flailOn = false;
+        float p[3];
+        if (game::chr_pos(pl, p)) {
+            if (!posHave) { memcpy(posLast, p, 12); posHave = true; }
+            else {
+                float dx = p[0] - posLast[0], dz = p[2] - posLast[2];
+                if (dx * dx + dz * dz > 25.f) { memcpy(posLast, p, 12); }
+                else if (dx != 0.f || dz != 0.f) {
+                    float np[3] = {posLast[0] + dx / mult, p[1], posLast[2] + dz / mult};
+                    game::chr_set_xz(pl, np[0], np[2]);
+                    memcpy(posLast, np, 12);
+                }
+            }
+        }
+    } else {
+        posHave = false;
+        if (s_flailOn) {
+            game::set_anim_speed(pl, 1.f);
+            s_flailOn = false;
+        }
     }
     st.flailActive = s_flailOn;
     return s_flailOn;

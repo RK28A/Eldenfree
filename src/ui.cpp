@@ -444,11 +444,11 @@ static void tab_player(const feat::Status& st) {
 }
 
 static void tab_plus(const feat::Status& st) {
-    card_begin("flail", "Fl\xC3\xA9" "au : rotation acc\xC3\xA9l\xC3\xA9r\xC3\xA9" "e", "Uniquement avec un fl\xC3\xA9" "au en main droite : la comp\xC3\xA9tence qui fait tourner le fl\xC3\xA9" "au tourne beaucoup plus vite (plus de coups par seconde).");
+    card_begin("flail", "Fl\xC3\xA9" "au : rotation acc\xC3\xA9l\xC3\xA9r\xC3\xA9" "e", "Uniquement avec un fl\xC3\xA9" "au en main droite : rotation beaucoup plus rapide (plus de coups par seconde) sans changer ta vitesse de marche, et aucune consommation de PC ni d'endurance. Tout redevient normal d\xC3\xA8s que tu le ranges.");
     right_pill(st.flailActive ? "En rotation" : st.flailHeld ? "Fl\xC3\xA9" "au en main" : "Pas de fl\xC3\xA9" "au", st.flailActive ? C_WARN : st.flailHeld ? C_OK : C_DIM);
     if (toggle("Activer", &g_cfg.flailSpin)) save();
     ImGui::PushItemWidth(-1);
-    ImGui::SliderFloat("##fm", &g_cfg.flailMult, 1.f, 10.f, "Vitesse de rotation  x%.1f");
+    ImGui::SliderFloat("##fm", &g_cfg.flailMult, 1.f, 20.f, "Vitesse de rotation  x%.1f");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     ImGui::PopItemWidth();
     char fb[96];
