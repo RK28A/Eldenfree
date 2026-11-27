@@ -20,6 +20,9 @@ struct Config {
     bool fastCast = false;
     float castSpeed = 6.0f;
     float weightMult = 1.0f;
+    bool flailSpin = false;
+    float flailMult = 3.0f;
+    std::string flailAnims;
     std::string castAnims;
     std::string castAnimsNo;
     std::string aowBuff;

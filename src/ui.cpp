@@ -439,6 +439,19 @@ static void tab_player(const feat::Status& st) {
 }
 
 static void tab_plus(const feat::Status& st) {
+    card_begin("flail", "Fl\xC3\xA9" "au : rotation acc\xC3\xA9l\xC3\xA9r\xC3\xA9" "e", "Uniquement avec un fl\xC3\xA9" "au en main droite : la comp\xC3\xA9tence qui fait tourner le fl\xC3\xA9" "au tourne beaucoup plus vite (plus de coups par seconde).");
+    right_pill(st.flailActive ? "En rotation" : st.flailHeld ? "Fl\xC3\xA9" "au en main" : "Pas de fl\xC3\xA9" "au", st.flailActive ? C_WARN : st.flailHeld ? C_OK : C_DIM);
+    if (toggle("Activer", &g_cfg.flailSpin)) save();
+    ImGui::PushItemWidth(-1);
+    ImGui::SliderFloat("##fm", &g_cfg.flailMult, 1.f, 10.f, "Vitesse de rotation  x%.1f");
+    if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    ImGui::PopItemWidth();
+    char fb[96];
+    snprintf(fb, sizeof(fb), "%d animation(s) apprise(s). La 1re utilisation de la comp\xC3\xA9tence sert \xC3\xA0 l'apprendre.", st.flailLearned);
+    hint(fb);
+    if (ImGui::Button("Oublier les animations du fl\xC3\xA9" "au")) feat::post(feat::Act::ResetFlail);
+    card_end();
+
     card_begin("bloodboil", "Ar\xC3\xB4me de sang bouillant", "Remplit ton inventaire au maximum autoris\xC3\xA9 par le jeu. Rappuie apr\xC3\xA8s en avoir utilis\xC3\xA9 pour recompl\xC3\xA9ter.");
     if (primary("Obtenir le maximum", st.itemGib && st.player)) feat::post(feat::Act::GiveBloodboil);
     card_end();

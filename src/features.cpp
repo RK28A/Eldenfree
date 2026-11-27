@@ -244,8 +244,9 @@ const std::vector<GameMenu>& game_menus() {
     return m;
 }
 
-static std::unordered_set<int> s_castAnims, s_castNo, s_aowBuff, s_aowNo;
+static std::unordered_set<int> s_castAnims, s_castNo, s_aowBuff, s_aowNo, s_flailAnims;
 static void cast_save();
+static void flail_save();
 
 struct JFlag { int r, off; uint8_t ground; int score; };
 static std::vector<JFlag> s_jLearned, s_jCands;
@@ -339,6 +340,11 @@ static void process_actions() {
         case Act::RefreshInv: refresh_weapons(); break;
         case Act::SaveCfg: cfg_save(); break;
         case Act::GiveBloodboil: act_bloodboil(); break;
+        case Act::ResetFlail:
+            s_flailAnims.clear();
+            flail_save();
+            msg("Animations du fl\xC3\xA9" "au oubli\xC3\xA9" "es");
+            break;
         case Act::ResetJump:
             s_jLearned.clear();
             s_jCands.clear();
@@ -1042,6 +1048,55 @@ static void tick_weight(uintptr_t pl, Status& st) {
     st.equipLoadBase = s_wBase;
 }
 
+static bool s_flailLoaded = false, s_flailOn = false;
+static uint32_t s_flailFp = 0;
+static double s_flailLearnUntil = 0;
+static uint32_t s_rwId = 0;
+static bool s_rwFlail = false;
+
+static void flail_save() {
+    g_cfg.flailAnims = join_set(s_flailAnims);
+    cfg_save();
+}
+
+static bool tick_flail(double t, uintptr_t pl, Status& st) {
+    if (!s_flailLoaded) { s_flailLoaded = true; parse_set(g_cfg.flailAnims, s_flailAnims); }
+    st.flailLearned = (int)s_flailAnims.size();
+    uintptr_t P = game::pgd();
+    if (!pl || !P) { s_flailOn = false; return false; }
+    int slot = mem::rdv<int32_t>(P + 0x32C, 0);
+    if (slot < 0 || slot > 2) slot = 0;
+    uint32_t rw = mem::rdv<uint32_t>(P + 0x5FC + slot * 8, 0);
+    if (rw != s_rwId) {
+        s_rwId = rw;
+        std::string n = (rw && rw < 0x10000000) ? game::weapon_name(rw) : "";
+        st.rightWeapon = n;
+        std::string l = n;
+        for (auto& c : l) c = (char)tolower((unsigned char)c);
+        s_rwFlail = l.find("fl\xC3\xA9" "au") != std::string::npos || l.find("fleau") != std::string::npos || l.find("flail") != std::string::npos;
+        if (!game::names_ready()) s_rwId = 0;
+    }
+    st.flailHeld = s_rwFlail;
+    uint32_t fp = mem::rdv<uint32_t>(P + g_cfg.offPgdFp);
+    int anim = game::cur_anim(pl);
+    if (g_cfg.flailSpin && s_rwFlail && s_flailFp && fp < s_flailFp) s_flailLearnUntil = t + 3.0;
+    s_flailFp = fp;
+    if (s_rwFlail && anim > 0 && t < s_flailLearnUntil && s_flailAnims.insert(anim).second) {
+        elog("Fleau : animation %d apprise", anim);
+        flail_save();
+    }
+    bool want = g_cfg.flailSpin && s_rwFlail && anim > 0 && s_flailAnims.count(anim);
+    if (want) {
+        game::set_anim_speed(pl, std::clamp(g_cfg.flailMult, 1.f, 10.f));
+        s_flailOn = true;
+    } else if (s_flailOn) {
+        game::set_anim_speed(pl, 1.f);
+        s_flailOn = false;
+    }
+    st.flailActive = s_flailOn;
+    return s_flailOn;
+}
+
 static DWORD WINAPI scan_thread(void*) {
     ULONGLONG lastNames = 0;
     for (;;) {
@@ -1124,7 +1179,7 @@ static DWORD WINAPI tick_thread(void*) {
             pump_delayed();
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;
-            tick_cast(pl, st);
+            if (!tick_flail(t, pl, st)) tick_cast(pl, st);
             tick_weight(pl, st);
 
             st.names = game::names_ready();
