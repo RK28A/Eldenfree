@@ -71,7 +71,7 @@ void cfg_load() {
     c.flailSpin = geti(L"Plus", L"FlailSpin", c.flailSpin);
     c.flailMult = getf(L"Plus", L"FlailSpinMult", c.flailMult);
     if (c.flailMult < 1.f) c.flailMult = 1.f;
-    if (c.flailMult > 25.f) c.flailMult = 25.f;
+    if (c.flailMult > 20.f) c.flailMult = 20.f;
     c.flailAnims = gets(L"Plus", L"FlailSpinAnimsV3");
     c.castAnims = gets(L"Player", L"CastSpellAnimsV3");
     c.castAnimsNo = gets(L"Player", L"CastSpellAnimsAttack");

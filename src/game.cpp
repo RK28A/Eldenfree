@@ -1472,7 +1472,7 @@ void speffects2(uintptr_t chr, std::vector<SpFx>& out) {
 static uintptr_t s_gaitemImp = 0;
 static bool s_gaitemTried = false;
 
-static uintptr_t gaitem_obj(uint32_t h) {
+uintptr_t gaitem(uint32_t h) {
     if (!s_gaitemTried) {
         s_gaitemTried = true;
         uintptr_t a = aob("48 8B 0D ?? ?? ?? ?? 4C 8B C6 48 8D 54");
@@ -1491,11 +1491,11 @@ uint32_t hand_gem(bool right) {
     int slot = rdv<int32_t>(P + (right ? 0x32C : 0x328), 0);
     if (slot < 0 || slot > 2) slot = 0;
     uint32_t h = rdv<uint32_t>(P + (right ? 0x344 : 0x340) + slot * 8, 0);
-    uintptr_t w = gaitem_obj(h);
+    uintptr_t w = gaitem(h);
     if (!w) return 0xFFFFFFFF;
     uint32_t gh = rdv<uint32_t>(w + 0x28, 0);
     if (gh == 0 || gh == 0xFFFFFFFF) return 0;
-    uintptr_t gobj = gaitem_obj(gh);
+    uintptr_t gobj = gaitem(gh);
     uint32_t id = gobj ? rdv<uint32_t>(gobj + 0xC, 0) : 0;
     if ((id >> 28) != 0x8) return 0xFFFFFFFF;
     return id & 0x0FFFFFFF;

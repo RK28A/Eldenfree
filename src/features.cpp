@@ -740,8 +740,7 @@ static void tick_patches(Status& st) {
     st.pRide2 = game::patch_found(game::P_RIDE2);
     if (st.pRide2) game::patch_set(game::P_RIDE2, g_cfg.rideAnywhere);
     st.pJump = game::patch_found(game::P_HJUMP1) && game::patch_found(game::P_HJUMP2);
-    st.pAir = game::patch_found(game::P_HFALL);
-    if (st.pAir) st.pAir = game::patch_set(game::P_HFALL, g_cfg.torrentInfJump);
+    st.pAir = false;
     if (st.pMap) {
         game::patch_set(game::P_MAP1, g_cfg.mapCombat);
         game::patch_set(game::P_MAP2, g_cfg.mapCombat);
@@ -1091,7 +1090,7 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
         if (f & 0x0C) mem::wr(dm + g_cfg.offChrFlags, (uint8_t)(f & ~0x0C));
         cleanedChr = pl;
     }
-    float mult = std::clamp(g_cfg.flailMult, 1.f, 25.f);
+    float mult = std::clamp(g_cfg.flailMult, 1.f, 20.f);
     bool want = g_cfg.flailSpin && s_rwFlail && anim > 0;
     bool moving = false;
     if (GetForegroundWindow() == overlay::hwnd()) {
@@ -1122,7 +1121,8 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
 }
 
 static bool s_jumpPrev = false;
-static double s_vCancelUntil = 0, s_jumpPressT = -10;
+static double s_vCancelUntil = 0, s_jumpPressT = -10, s_vBoostUntil = 0, s_vPeakUntil = 0;
+static float s_vPeak = 10.f, s_vPeakCur = 0.f;
 
 static bool s_jumpPress = false;
 
@@ -1140,13 +1140,39 @@ static bool torrent_airborne(uintptr_t ph) {
 
 static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
     st.fallVelLearned = true;
-    uintptr_t ph = (g_cfg.torrentInfJump && mounted && tor) ? game::chr_module(tor, g_cfg.offPhysMod) : 0;
-    bool airborne = torrent_airborne(ph);
-    game::patch_flag(game::P_HFALL, airborne);
+    if (!g_cfg.torrentInfJump || !mounted || !tor) return;
+    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
+    bool airborne = ph && mem::rdv<uint8_t>(ph + 0x1D1) == 0;
+    bool press = s_jumpPress;
+    if (airborne) {
+        if (uintptr_t af = game::chr_module(tor, 0x08)) {
+            uint8_t f = mem::rdv<uint8_t>(af + 0x214);
+            if (f & 0x20) mem::wr(af + 0x214, (uint8_t)(f & ~0x20));
+        }
+    }
     if (!ph) return;
-    if (s_jumpPress && airborne) s_vCancelUntil = t + 0.4;
-    if (t < s_vCancelUntil) {
-        float v = mem::rdv<float>(ph + 0x124, 0.f);
+    float v = mem::rdv<float>(ph + 0x124, 0.f);
+    if (press && airborne) {
+        if (v < -1.f) {
+            s_vBoostUntil = t + 0.15;
+        } else {
+            s_vPeakUntil = t + 0.5;
+            s_vPeakCur = 0.f;
+            s_vCancelUntil = t + 0.4;
+        }
+    }
+    if (t < s_vPeakUntil) {
+        s_vPeakCur = std::max(s_vPeakCur, v);
+    } else if (s_vPeakCur > 4.f) {
+        s_vPeak = std::clamp(s_vPeakCur, 6.f, 20.f);
+        s_vPeakCur = 0.f;
+    }
+    if (t < s_vBoostUntil) {
+        if (v < s_vPeak) {
+            mem::wr(ph + 0x124, s_vPeak);
+            mem::wr(ph + 0x134, s_vPeak);
+        }
+    } else if (t < s_vCancelUntil) {
         if (v < 0.f) {
             mem::wr(ph + 0x124, 0.f);
             mem::wr(ph + 0x134, 0.f);

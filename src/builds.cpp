@@ -29,6 +29,8 @@ static void save_file_locked() {
         for (int i = 0; i < 16; ++i) fprintf(f, "%s%u:%u", i ? "," : "", b.goods[i], (unsigned)b.goodsHas[i]);
         fputc('\t', f);
         for (int i = 0; i < 14; ++i) fprintf(f, "%s%d", i ? "," : "", b.spells[i]);
+        fputc('\t', f);
+        for (int i = 0; i < 6; ++i) fprintf(f, "%s%d", i ? "," : "", b.gems[i]);
         fputc('\n', f);
     }
     fclose(f);
@@ -78,6 +80,11 @@ void load_file() {
             b.goodsHas[i] = (uint8_t)has;
         }
         for (int i = 0; i < 14; ++i) b.spells[i] = atoi(sp[i].c_str());
+        if (p.size() >= 7) {
+            auto gm = split(p[6], ',');
+            if (gm.size() == 6)
+                for (int i = 0; i < 6; ++i) b.gems[i] = atoi(gm[i].c_str());
+        }
         if (ok) s_list.push_back(b);
     }
     fclose(f);
@@ -153,6 +160,7 @@ bool ready() {
 }
 
 struct Inv {
+    uintptr_t normHead = 0;
     uint32_t keyCap = 0, keyLen = 0, normCap = 0, normLen = 0;
     std::vector<uint32_t> key, norm;
 };
@@ -166,6 +174,7 @@ static bool inv_read(Inv& v) {
     v.keyLen = rdv<uint32_t>(P + 0x430);
     uintptr_t nh = ptr(P + 0x418), kh = ptr(P + 0x428);
     if (!nh || !kh || !v.normCap || v.normCap > 8192 || !v.keyCap || v.keyCap > 4096 || v.normLen > v.normCap || v.keyLen > v.keyCap) return false;
+    v.normHead = nh;
     v.norm.resize((size_t)v.normCap * 6);
     v.key.resize((size_t)v.keyCap * 6);
     return mem::read_raw(nh, v.norm.data(), v.norm.size() * 4) && mem::read_raw(kh, v.key.data(), v.key.size() * 4);
@@ -200,6 +209,156 @@ static bool inv_find(const Inv& v, uint32_t item, uint32_t handle, uint32_t& ind
     return false;
 }
 
+static uintptr_t wep_obj(uint32_t h) {
+    if ((h >> 28) != 0x8) return 0;
+    uintptr_t o = game::gaitem(h);
+    return (o && rdv<uint32_t>(o + 8) == h && (rdv<uint32_t>(o + 0xC) >> 28) == 0) ? o : 0;
+}
+
+static uintptr_t gem_obj(uint32_t h) {
+    if ((h >> 28) != 0xC) return 0;
+    uintptr_t o = game::gaitem(h);
+    return (o && rdv<uint32_t>(o + 8) == h && (rdv<uint32_t>(o + 0xC) >> 28) == 0x8) ? o : 0;
+}
+
+static uint32_t gem_of(uintptr_t wobj) {
+    uintptr_t g = gem_obj(rdv<uint32_t>(wobj + 0x28));
+    return g ? (rdv<uint32_t>(g + 0xC) & 0x0FFFFFFF) : 0;
+}
+
+struct GemLayout {
+    bool ok = false, haveNoneG = false, haveNoneW = false;
+    uint32_t noneG = 0, noneW = 0;
+};
+
+static GemLayout gem_layout(const Inv& v) {
+    GemLayout L;
+    int pairs = 0, bad = 0;
+    uint32_t seen = 0;
+    for (uint32_t i = 0; i < v.normCap && seen < v.normLen; ++i) {
+        uint32_t h = v.norm[(size_t)i * 6], id = v.norm[(size_t)i * 6 + 1];
+        if (h == 0 || h == 0xFFFFFFFF || id == 0xFFFFFFFF) continue;
+        ++seen;
+        if (uintptr_t w = wep_obj(h)) {
+            uint32_t gh = rdv<uint32_t>(w + 0x28);
+            if ((gh >> 28) == 0xC) {
+                uintptr_t g = gem_obj(gh);
+                if (g && rdv<uint32_t>(g + 0x10) == h) ++pairs;
+                else ++bad;
+            } else if (!L.haveNoneG) {
+                L.haveNoneG = true;
+                L.noneG = gh;
+            }
+        } else if (uintptr_t g = gem_obj(h)) {
+            uint32_t wh = rdv<uint32_t>(g + 0x10);
+            if ((wh >> 28) != 0x8 && !L.haveNoneW) {
+                L.haveNoneW = true;
+                L.noneW = wh;
+            }
+        }
+    }
+    L.ok = bad == 0 && (pairs > 0 || (L.haveNoneG && L.haveNoneW)) && (!L.haveNoneG || L.noneG == 0 || L.noneG == 0xFFFFFFFF) && (!L.haveNoneW || L.noneW == 0 || L.noneW == 0xFFFFFFFF);
+    elog("Builds : cendres %s (%d paires, %d incoherentes, vide arme %s0x%X, vide cendre %s0x%X)", L.ok ? "ok" : "structure non reconnue", pairs, bad, L.haveNoneG ? "" : "?", L.noneG,
+         L.haveNoneW ? "" : "?", L.noneW);
+    return L;
+}
+
+static void set_entry_id(Inv& v, uint32_t pos, uint32_t id) {
+    mem::wr(v.normHead + (uintptr_t)pos * 0x18 + 4, id);
+    v.norm[(size_t)pos * 6 + 1] = id;
+}
+
+static bool find_handle(const Inv& v, uint32_t handle, uint32_t& pos) {
+    uint32_t seen = 0;
+    for (uint32_t i = 0; i < v.normCap && seen < v.normLen; ++i) {
+        uint32_t h = v.norm[(size_t)i * 6], id = v.norm[(size_t)i * 6 + 1];
+        if (h == 0 || h == 0xFFFFFFFF || id == 0xFFFFFFFF) continue;
+        ++seen;
+        if (h == handle) { pos = i; return true; }
+    }
+    return false;
+}
+
+static bool find_weapon(const Inv& v, uint32_t item, uint32_t handle, uint32_t& pos) {
+    if ((item >> 28) != 0) return false;
+    if (find_handle(v, handle, pos)) {
+        uint32_t id = v.norm[(size_t)pos * 6 + 1];
+        if ((id >> 28) == 0 && id / 10000 == item / 10000) return true;
+    }
+    for (int pass = 0; pass < 2; ++pass) {
+        uint32_t seen = 0;
+        for (uint32_t i = 0; i < v.normCap && seen < v.normLen; ++i) {
+            uint32_t h = v.norm[(size_t)i * 6], id = v.norm[(size_t)i * 6 + 1];
+            if (h == 0 || h == 0xFFFFFFFF || id == 0xFFFFFFFF) continue;
+            ++seen;
+            if ((h >> 28) != 0x8 || (id >> 28) != 0) continue;
+            if (pass == 0 ? id == item : id / 10000 == item / 10000) { pos = i; return true; }
+        }
+    }
+    return false;
+}
+
+static bool apply_gem(Inv& v, const GemLayout& L, uint32_t pos, int gemId, uint32_t savedItem) {
+    uint32_t wh = v.norm[(size_t)pos * 6], wid = v.norm[(size_t)pos * 6 + 1];
+    uintptr_t w = wep_obj(wh);
+    if (!w || rdv<uint32_t>(w + 0xC) != wid) return true;
+    uint32_t newId = wid - wid % 10000 + ((savedItem % 10000) / 100) * 100 + wid % 100;
+    uint32_t curGh = rdv<uint32_t>(w + 0x28);
+    uintptr_t curG = gem_obj(curGh);
+    uint32_t curGem = curG ? (rdv<uint32_t>(curG + 0xC) & 0x0FFFFFFF) : 0;
+    bool ok = true;
+    if ((uint32_t)gemId != curGem) {
+        uint32_t newGh = 0;
+        uintptr_t newG = 0;
+        if (gemId > 0) {
+            uint32_t want = 0x80000000u | (uint32_t)gemId, attachedH = 0;
+            uintptr_t attachedG = 0;
+            uint32_t seen = 0;
+            for (uint32_t i = 0; i < v.normCap && seen < v.normLen && !newG; ++i) {
+                uint32_t h = v.norm[(size_t)i * 6], id = v.norm[(size_t)i * 6 + 1];
+                if (h == 0 || h == 0xFFFFFFFF || id == 0xFFFFFFFF) continue;
+                ++seen;
+                if (id != want) continue;
+                uintptr_t g = gem_obj(h);
+                if (!g) continue;
+                if ((rdv<uint32_t>(g + 0x10) >> 28) != 0x8) { newG = g; newGh = h; }
+                else if (!attachedG) { attachedG = g; attachedH = h; }
+            }
+            if (!newG && attachedG) {
+                uint32_t w2h = rdv<uint32_t>(attachedG + 0x10), p2 = 0;
+                uintptr_t w2 = wep_obj(w2h);
+                if (!w2 || rdv<uint32_t>(w2 + 0x28) != attachedH || !L.haveNoneG) return false;
+                mem::wr(w2 + 0x28, L.noneG);
+                uint32_t id2 = rdv<uint32_t>(w2 + 0xC), std2 = id2 - id2 % 10000 + id2 % 100;
+                mem::wr(w2 + 0xC, std2);
+                if (find_handle(v, w2h, p2)) set_entry_id(v, p2, std2);
+                elog("Builds : cendre %d retiree de l'arme %u", gemId, id2);
+                newG = attachedG;
+                newGh = attachedH;
+            }
+            if (!newG) {
+                elog("Builds : cendre %d absente de l'inventaire", gemId);
+                return false;
+            }
+        } else if (!L.haveNoneG) {
+            return false;
+        }
+        if (curG) {
+            if (!L.haveNoneW) return false;
+            mem::wr(curG + 0x10, L.noneW);
+        }
+        mem::wr(w + 0x28, newG ? newGh : L.noneG);
+        if (newG) mem::wr(newG + 0x10, wh);
+        elog("Builds : arme %u, cendre %u -> %d", wid, curGem, gemId);
+    }
+    if (newId != wid) {
+        mem::wr(w + 0xC, newId);
+        set_entry_id(v, pos, newId);
+        elog("Builds : arme %u -> %u (affinite)", wid, newId);
+    }
+    return ok;
+}
+
 static uintptr_t magic_data(uintptr_t P) {
     uintptr_t m = ptr(P + 0x530);
     return (m && rdv<uintptr_t>(m + 8) == P + 0x2B0) ? m : 0;
@@ -224,6 +383,12 @@ bool capture(Build& b) {
     }
     uintptr_t md = magic_data(P);
     for (int i = 0; i < 14; ++i) b.spells[i] = md ? rdv<int32_t>(md + 0x10 + i * 8, -1) : -1;
+    for (int i = 0; i < 6; ++i) {
+        b.gems[i] = -1;
+        if (!b.gearHas[i]) continue;
+        uintptr_t w = wep_obj(b.gearH[i]);
+        if (w) b.gems[i] = (int)gem_of(w);
+    }
     std::string r = b.gearHas[1] ? game::weapon_name(b.gear[1]) : "", l = b.gearHas[0] ? game::weapon_name(b.gear[0]) : "";
     b.summary = r;
     if (!l.empty()) b.summary += (b.summary.empty() ? "" : "  +  ") + l;
@@ -253,6 +418,11 @@ void apply_gear(const Build& b, bool stats, Result& r) {
         }
     }
     uintptr_t egd = P + 0x2B0;
+    bool anyGem = false;
+    for (int i = 0; i < 6; ++i)
+        if (b.gearHas[i] && b.gems[i] >= 0) anyGem = true;
+    GemLayout L;
+    if (anyGem) L = gem_layout(v);
     static const int order[] = {17, 18, 19, 20, 21, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     for (int slot : order) {
         uint32_t cur = rdv<uint32_t>(P + 0x5F8 + slot * 4), curH = rdv<uint32_t>(P + 0x340 + slot * 4);
@@ -261,10 +431,29 @@ void apply_gear(const Build& b, bool stats, Result& r) {
             if (cur == item) continue;
             uint32_t none = 0xFFFFFFFF;
             ((GearFn)s_fnGear)(egd, (uint32_t)slot, &none, 0xFFFFFFFF, 1, 1, 0);
+            elog("Builds : emplacement %d vide", slot);
+            continue;
+        }
+        if (slot < 6) {
+            uint32_t pos = 0;
+            if (!find_weapon(v, item, b.gearH[slot], pos)) {
+                elog("Builds : emplacement %d, arme %u absente", slot, item);
+                ++r.missing;
+                continue;
+            }
+            if (L.ok && b.gems[slot] >= 0 && !apply_gem(v, L, pos, b.gems[slot], item)) ++r.missing;
+            uint32_t h = v.norm[(size_t)pos * 6], id = v.norm[(size_t)pos * 6 + 1];
+            if (cur != id || curH != h || L.ok) ((GearFn)s_fnGear)(egd, (uint32_t)slot, &id, v.keyCap + pos, 1, 1, 0);
+            elog("Builds : emplacement %d, arme %u (index %u)", slot, id, v.keyCap + pos);
+            ++r.equipped;
             continue;
         }
         uint32_t index = 0;
-        if (!inv_find(v, item, b.gearH[slot], index)) { ++r.missing; continue; }
+        if (!inv_find(v, item, b.gearH[slot], index)) {
+            elog("Builds : emplacement %d, objet 0x%X absent", slot, item);
+            ++r.missing;
+            continue;
+        }
         if (cur == item && (curH == b.gearH[slot] || slot >= 6)) { ++r.equipped; continue; }
         ((GearFn)s_fnGear)(egd, (uint32_t)slot, &item, index, 1, 1, 0);
         ++r.equipped;
@@ -306,7 +495,10 @@ void apply_rest(const Build& b, Result& r) {
         return;
     }
     uint32_t slots = rdv<uint32_t>(P + 0xA74);
+    elog("Builds : sorts, emplacements lus %u", slots);
     if (slots < 1 || slots > 14) slots = 14;
+    for (uint32_t i = 0; i < 14; ++i)
+        if (b.spells[i] > 0 && i + 1 > slots) slots = i + 1;
     auto call = [&](uint32_t slot, uint32_t index, uint32_t a, uint32_t c) {
         alignas(16) uint8_t args[128] = {};
         memcpy(args + 0x08, &slot, 4);
@@ -321,8 +513,13 @@ void apply_rest(const Build& b, Result& r) {
         int sp = b.spells[i];
         if (sp <= 0) continue;
         uint32_t index = 0, pos = 0;
-        if (i >= slots || !inv_find(v, 0x40000000u | (uint32_t)sp, 0, index, &pos)) { ++r.spellsMissing; continue; }
+        if (i >= slots || !inv_find(v, 0x40000000u | (uint32_t)sp, 0, index, &pos)) {
+            elog("Builds : sort %d absent de l'inventaire", sp);
+            ++r.spellsMissing;
+            continue;
+        }
         call(i, (v.keyCap + pos) - 1, 0x40000000u + (uint32_t)sp, 0xB0000000u + (uint32_t)sp);
+        elog("Builds : sort %d en emplacement %u (index %u)", sp, i, (v.keyCap + pos) - 1);
         ++r.spells;
     }
 }

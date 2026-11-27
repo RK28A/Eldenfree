@@ -402,7 +402,7 @@ static void tab_menus(const feat::Status& st) {
 static void tab_builds(const feat::Status& st) {
     static char name[48] = "";
     auto list = builds::list();
-    card_begin("bsave", "Enregistrer", "Sauvegarde tes stats, armes, armure, talismans, fl\xC3\xA8" "ches, objets rapides, sacoche et sorts m\xC3\xA9moris\xC3\xA9s.");
+    card_begin("bsave", "Enregistrer", "Sauvegarde tes stats, armes (avec leur cendre de guerre et leur affinit\xC3\xA9), armure, talismans, fl\xC3\xA8" "ches, objets rapides, sacoche et sorts m\xC3\xA9moris\xC3\xA9s.");
     right_pill(st.buildsReady ? "Pr\xC3\xAAt" : "Fonctions du jeu introuvables", st.buildsReady ? C_OK : C_BAD);
     ImGui::PushItemWidth(-1);
     ImGui::InputTextWithHint("##bn", "Nom du build (optionnel)", name, sizeof(name));
@@ -507,7 +507,7 @@ static void tab_plus(const feat::Status& st) {
     right_pill(st.flailActive ? "En rotation" : st.flailHeld ? "Fl\xC3\xA9" "au en main" : "Pas de fl\xC3\xA9" "au", st.flailActive ? C_WARN : st.flailHeld ? C_OK : C_DIM);
     if (toggle("Activer", &g_cfg.flailSpin)) save();
     ImGui::PushItemWidth(-1);
-    ImGui::SliderFloat("##fm", &g_cfg.flailMult, 1.f, 25.f, "Vitesse de rotation  x%.1f");
+    ImGui::SliderFloat("##fm", &g_cfg.flailMult, 1.f, 20.f, "Vitesse de rotation  x%.1f");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     ImGui::PopItemWidth();
     hint("Rotation du Fl\xC3\xA9" "au d'armes reconnue directement ; les autres fl\xC3\xA9" "aux sont appris \xC3\xA0 la 1re utilisation.");
@@ -562,7 +562,6 @@ static void tab_diag(const feat::Status& st) {
         snprintf(rg, sizeof(rg), "%d acc\xC3\xA8s rep\xC3\xA9r\xC3\xA9s", st.rideGuardHits);
         status_row("Garde anti-disparition de Torrent", st.rideGuard, st.rideGuard ? rg : "active Torrent partout puis siffle une fois");
         status_row("Patch saut infini", st.pJump);
-        status_row("Patch double saut en chute", st.pAir);
         char gm[64];
         snprintf(gm, sizeof(gm), "droite %d  \xC2\xB7  gauche %d", (int)st.gemR, (int)st.gemL);
         status_row("Cendres en main", st.gemR != 0xFFFFFFFF, gm);

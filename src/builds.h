@@ -13,6 +13,7 @@ struct Build {
     uint32_t goods[16] = {};
     uint8_t goodsHas[16] = {};
     int spells[14] = {};
+    int gems[6] = {-1, -1, -1, -1, -1, -1};
     int level() const {
         int s = 0;
         for (int v : stats) s += v;
