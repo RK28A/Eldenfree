@@ -1,4 +1,4 @@
-# EldenFree — offsets résolus (eldenring.exe 2.7.2.0)
+# EldenFree — OFFSETS_RESULTATS_2.7.2.0
 
 Scan AOB statique sur le .exe du disque. ImageBase 0x140000000. Tous les patterns
 de la section 2 et les patchs code de la section 9 matchent. (0.1 version = **2.7.2.0**)
@@ -46,3 +46,28 @@ relever dans CE.
 ## Note
 v2.7.2.0, SteamStub présent mais `.text` principal non chiffré sur le disque.
 Après tout patch du jeu, refaire le scan : les RVA changent à chaque version.
+
+---
+
+## Reste de la section 2 (doc mis à jour)
+
+| # | Élément | Statique ? | Résultat |
+|---|---|---|---|
+| 2.14 | CSLuaEventManager proxy `+08`/`+18` | non | offsets de struct, runtime (CE) |
+| 2.15 | Carte en combat, patch B | **partiel** | voir ci-dessous |
+| 2.16 | Singletons FD4 par nom (CSMenuMan, MapItemMan) | non | compte N déterminé au runtime |
+
+**2.15 — patch B introuvable à côté de A.** Patch A = `0x1409C4E9B`
+(`call … / test al,al / jnz / cmp [rbx+3EC2],al / jnz / and esi,FFFFFFFE`).
+Le motif B `74 ?? C7 45` n'a **aucune occurrence adjacente** : la plus proche
+est à `0x140997A42` (−0x2D459) ou `0x1409FE288` (+0x393ED). Les seuls octets
+`74` près de A (A−0x36, A+0x15, A+0x29) sont des octets `74 24` internes à des
+`mov [rsp+40],esi` (`89 74 24 40`), pas des sauts.
+
+→ L'heuristique « prendre le `74 ?? C7 45` le plus proche de A » est **non
+fiable** sur 2.7.2.0 : elle vise à ~180 ko de A. Pour B il faut une vraie
+signature autonome (côté Erd-Tools-CPP), pas la proximité avec A. Rien à
+figer en statique ici tant que la signature B exacte n'est pas fournie.
+
+Tout le reste (sections 3–12 : chaînes de pointeurs, params, flags, IDs, noms,
+events de menus) = runtime, Cheat Engine + table TGA, jeu lancé.

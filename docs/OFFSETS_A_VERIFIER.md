@@ -68,7 +68,7 @@ Toutes trouvées sur 2.7.2.0 (scan statique, voir `OFFSETS_RESULTATS_2.7.2.0.md`
 | # | Élément | Valeur actuelle | Fiabilité | Comment vérifier | Ta réponse |
 |---|---|---|---|---|---|
 | 2.14 | CSLuaEventManager : proxy / imitation | `CSLuaEventMan → +08` / `+18` | ⚠️ TGA | la téléportation après Greyoll t'emmène-t-elle à Fort Faroth ? | |
-| 2.15 | Carte en combat, patch B (signature trouvée 66 fois) | le mod prend l'occurrence la plus proche du patch A (`0x1409C4E9B`) | 🔧 | journal `Patch MapInCombat2 ok -> … (66 candidats, distance 0x…)` : adresse et distance ? Avec CE, l'octet `74` à cette adresse est-il bien le saut qui bloque l'ouverture de la carte (juste après A) ? | |
+| 2.15 | Carte en combat, patch B | signature **complète** Erd-Tools-CPP : `74 ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? C7 45 ?? ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 48 89 45 ?? 48 8D 4D ?? E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 48 83 BF` → octet `74` remplacé par `EB` | ⚠️ Erd-Tools-CPP | refais le scan statique avec **cette** signature entière (pas seulement `74 ?? C7 45`) : combien d'occurrences ? adresse(s) ? | |
 | 2.16 | Singletons FD4 trouvés par nom | `CSMenuMan`, `MapItemMan` | ✅ TGA | journal `Singletons FD4 : N trouves` (N = ?) | |
 
 ---

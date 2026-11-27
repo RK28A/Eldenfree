@@ -474,11 +474,15 @@ static void patch_scan(CodePatch& p) {
         size_t n = aob_all(p.aob, hits, 256);
         uintptr_t best = 0;
         uint64_t bestD = ~0ull;
-        for (size_t i = 0; i < n && ref; ++i) {
-            uint64_t d = hits[i] > ref ? hits[i] - ref : ref - hits[i];
-            if (d < bestD) { bestD = d; best = hits[i]; }
+        if (n == 1) {
+            best = hits[0];
+            bestD = ref ? (best > ref ? best - ref : ref - best) : 0;
+        } else {
+            for (size_t i = 0; i < n && ref; ++i) {
+                uint64_t d = hits[i] > ref ? hits[i] - ref : ref - hits[i];
+                if (d < bestD) { bestD = d; best = hits[i]; }
+            }
         }
-        if (bestD > 0x2000) best = 0;
         p.addr = best;
         elog("Patch %-13s %s -> %p (%zu candidats, distance 0x%llX)", p.name, p.addr ? "ok" : "INTROUVABLE", (void*)p.addr, n,
              (unsigned long long)(bestD == ~0ull ? 0 : bestD));
