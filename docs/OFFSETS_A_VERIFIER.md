@@ -33,9 +33,10 @@ Le but : remplacer chaque bidouille par une valeur précise que tu relèves en j
 
 ## 0. Infos générales
 
+Déjà relevé : version **2.7.2.0** (voir `OFFSETS_RESULTATS_2.7.2.0.md`).
+
 | # | À relever | Où | Ta réponse |
 |---|---|---|---|
-| 0.1 | Version du jeu | clic droit `eldenring.exe` → Propriétés → Détails → Version du produit | |
 | 0.2 | DLC Shadow of the Erdtree installé ? | | |
 | 0.3 | Langue du jeu | | |
 | 0.4 | Manette : modèle + branchement (USB / Bluetooth / adaptateur sans fil) | | |
@@ -62,24 +63,13 @@ Le but : remplacer chaque bidouille par une valeur précise que tu relèves en j
 
 ## 2. Signatures (AOB) — adresses de base
 
-Pour chaque ligne, regarde dans le journal (onglet Diagnostic) si elle est `ok` ou `INTROUVABLE`.
+Toutes trouvées sur 2.7.2.0 (scan statique, voir `OFFSETS_RESULTATS_2.7.2.0.md`). Il ne reste que :
 
-| # | Élément | Signature / méthode | Fiabilité | Ta réponse (ok / introuvable) |
-|---|---|---|---|---|
-| 2.1 | GameDataMan | `48 8B 05 ?? ?? ?? ?? 48 85 C0 74 05 48 8B 40 58 C3 C3` (rip +3) | ✅ TGA | |
-| 2.2 | WorldChrMan | `48 8B 05 ?? ?? ?? ?? 48 85 C0 74 0F 48 39 88` (rip +3) | ✅ Erd-Tools | |
-| 2.3 | CSEventFlagMan | `48 8B 3D ?? ?? ?? ?? 48 85 FF ?? ?? 32 C0 E9`, secours `48 8B 3D ?? ?? ?? ?? 48 85 FF 74 ?? 48 8B 49` | ✅ Erd-Tools | |
-| 2.4 | SoloParamRepository | `48 8B 0D ?? ?? ?? ?? 48 85 C9 0F 84 ?? ?? ?? ?? 45 33 C0 BA 90` | ✅ Erd-Tools-CPP | |
-| 2.5 | MsgRepository | `48 8B 3D ?? ?? ?? ?? 44 0F B6 30 48 85 FF 75` | ✅ TGA | |
-| 2.6 | MapItemMan | `48 8B 0D ?? ?? ?? ?? C7 44 24 50 FF FF FF FF` puis singleton `MapItemMan` | ✅ TGA | |
-| 2.7 | ItemGib (donner un objet) | `8B 02 83 F8 0A` − `0x52` | ✅ TGA | |
-| 2.8 | EzState (ouvrir un menu) | `48 8B DA 4C 8B F1 33 FF 89 7D` − `0x47` | ✅ TGA | |
-| 2.9 | Téléportation (LuaWarp) | `C3 ?? ?? ?? ?? ?? ?? 57 48 83 EC ?? 48 8B FA 44` + 2 | ✅ TGA | |
-| 2.10 | CSLuaEventMan | `48 83 3D ?? ?? ?? ?? 00 48 8B F9 0F 84 ?? ?? ?? ?? 48` (rip +3, len 8) | ⚠️ TGA (commenté chez eux) | |
-| 2.11 | SpEffect ajout | `0F 28 0D ?? ?? ?? ?? ?? 8D ?? ?? 0F 29 ?? ?? ?? 0F B6 D8` − `0x1D` | ✅ TGA | |
-| 2.12 | SpEffect retrait | `48 83 EC 28 8B C2 48 8B 51 08 48 85 D2 ?? ?? 90` | ✅ TGA | |
-| 2.13 | Singletons FD4 (par nom) | motif `48 8B ?? ?? ?? ?? ?? 48 85 ?? 75 2E 48 8D 0D …` | ✅ TGA | ligne `Singletons FD4 : N trouves` (N = ?) |
-| 2.14 | CSLuaEventManager : proxy / imitation | `+0x08` / `+0x18` | ⚠️ TGA | |
+| # | Élément | Valeur actuelle | Fiabilité | Comment vérifier | Ta réponse |
+|---|---|---|---|---|---|
+| 2.14 | CSLuaEventManager : proxy / imitation | `CSLuaEventMan → +08` / `+18` | ⚠️ TGA | la téléportation après Greyoll t'emmène-t-elle à Fort Faroth ? | |
+| 2.15 | Carte en combat, patch B (signature trouvée 66 fois) | le mod prend l'occurrence la plus proche du patch A (`0x1409C4E9B`) | 🔧 | journal `Patch MapInCombat2 ok -> … (66 candidats, distance 0x…)` : adresse et distance ? Avec CE, l'octet `74` à cette adresse est-il bien le saut qui bloque l'ouverture de la carte (juste après A) ? | |
+| 2.16 | Singletons FD4 trouvés par nom | `CSMenuMan`, `MapItemMan` | ✅ TGA | journal `Singletons FD4 : N trouves` (N = ?) | |
 
 ---
 
@@ -206,15 +196,14 @@ Pour chaque ligne, regarde dans le journal (onglet Diagnostic) si elle est `ok` 
 | 9.2 | Dernière monture | `Modules → E8 → 18` | ✅ fromsoftware-rs | | |
 | 9.3 | Je suis monté | `Modules → E8 → 163` | ✅ fromsoftware-rs | | |
 | 9.4 | Vitesse de Torrent | vitesse d'animation de Torrent (`… → 28 → 17C8`), seulement au sol | 🔧 | | |
-| 9.5 | Saut infini (patch 1) | `0F B6 81 ?? ?? ?? ?? 88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? 80 B9` → `B0 01 90…` | ⚠️ Hexinton (2023) | | |
-| 9.6 | Saut infini (patch 2) | `88 87 ?? ?? ?? ?? 48 8B 83 ?? ?? ?? ?? 48 8B 48 ?? E8 ?? ?? ?? ?? 88 87` → `mov al,1` | ⚠️ Hexinton | | |
+| 9.5 | Saut infini (patchs trouvés : `0x140475EF5`, `0x140475F2F`) | Hexinton | ✅ signatures | le saut infini marche-t-il ? après une chute ? après une réapparition ? | |
 | 9.7 | **Vitesse de chute de Torrent** | 🔧 champ trouvé automatiquement pendant une chute (dans `… → 68`, ou les objets à `+98` / `+A0`) | 🔧 | valeur `FallVelocityField` dans l'ini + dans TGA, la vitesse verticale de Torrent si tu la trouves | |
 | 9.8 | Hauteur de saut | multiplie la vitesse verticale (si 9.7 trouvé) sinon amplifie la montée | 🔧 | | |
 | 9.9 | **Vol : orientation** | 🔧 décalage d'angle calculé en galopant ; écrit l'orientation `… → 68 → 50` / `60` (quaternion) | 🔧 | Torrent regarde-t-il dans la bonne direction en vol ? | |
 | 9.10 | **Vol : direction caméra** | `WorldChrMan + 1ECF0` → matrice : droite `+10`, avant `+30`, position `+40` | ⚠️ fromsoftware-rs | | |
 | 9.11 | **Vol : vitesse** | 13 m/s × multiplicateur Torrent | 🔧 | vitesse réelle de course de Torrent (m/s) si tu peux la mesurer | |
-| 9.12 | Torrent partout (donjons) | `48 8B 40 68 80 78 36 00 0F 95 C0` → saut vers code qui met `[rax+36] = 0` | ⚠️ Hexinton (2022) | encore des selles en boucle ? peux-tu descendre ? | |
-| 9.13 | Carte en combat | `E8 ?? ?? ?? ?? 84 C0 75 ?? 38 83 ?? ?? ?? ?? 75 ?? 83 E6 FE` → `48 31 C0 90 90` et `74 ?? C7 45 …` → `EB` | ✅ Erd-Tools-CPP (2025) | | |
+| 9.12 | Torrent partout (patch trouvé : `0x140CF28D2`) | met `[rax+36] = 0` (version Hexinton exacte) | ✅ signature | encore des selles en boucle ? peux-tu descendre ? | |
+| 9.13 | Carte en combat (patch A trouvé : `0x1409C4E9B`, B : voir 2.15) | Erd-Tools-CPP | ✅ signature A | la carte s'ouvre-t-elle avec des ennemis proches ? voyage rapide possible ? | |
 
 ---
 
