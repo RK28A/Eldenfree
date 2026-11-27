@@ -248,9 +248,6 @@ static std::unordered_set<int> s_castAnims, s_castNo, s_aowBuff, s_aowNo, s_flai
 static void cast_save();
 static void flail_save();
 
-struct JFlag { int r, off; uint8_t ground; int score; };
-static std::vector<JFlag> s_jLearned, s_jCands;
-static void jsave();
 
 static bool greyoll_reset() {
     bool ok = game::flag_set(GREYOLL_FLAG, false);
@@ -297,10 +294,13 @@ static void on_grace_pick(int which) { post_delayed(Act::OpenMenu, which == 1 ? 
 static void act_bloodboil() {
     if (!game::player()) { msg("Charge ta partie d'abord"); return; }
     if (!game::g.itemGib || !game::g.mapItemMan) { msg("Fonction d'obtention introuvable"); return; }
-    uint32_t id = game::find_name({10, 111, 319, 419}, {{L"bloodboil"}, {L"ar\u00f4me", L"bouill"}, {L"arome", L"bouill"}, {L"sang", L"bouill"}});
-    if (!id) { msg("Ar\xC3\xB4me de sang bouillant introuvable dans les textes du jeu"); return; }
+    uint32_t id = 3550;
     auto gt = game::param_tables("EQUIP_PARAM_GOODS_ST");
     uintptr_t row = gt.empty() ? 0 : game::param_find(gt[0], (int32_t)id);
+    if (!row) {
+        id = game::find_name({10, 111, 319, 419}, {{L"bloodboil"}, {L"ar\u00f4me", L"bouillesang"}, {L"ar\u00f4me", L"bouill"}, {L"arome", L"bouill"}});
+        row = (id && !gt.empty()) ? game::param_find(gt[0], (int32_t)id) : 0;
+    }
     if (!row) { msg("Ar\xC3\xB4me : param\xC3\xA8tres introuvables"); return; }
     int maxNum = mem::rdv<int16_t>(row + 0x3A);
     if (maxNum <= 0 || maxNum > 999) maxNum = 10;
@@ -346,9 +346,8 @@ static void process_actions() {
             msg("Animations du fl\xC3\xA9" "au oubli\xC3\xA9" "es");
             break;
         case Act::ResetJump:
-            s_jLearned.clear();
-            s_jCands.clear();
-            jsave();
+            g_cfg.jumpFlags.clear();
+            cfg_save();
             msg("Calibrage du double saut effac\xC3\xA9");
             break;
         case Act::ResetCast:
@@ -570,11 +569,6 @@ static void tick_patches(Status& st) {
 }
 
 static bool s_castLoaded = false, s_castActive = false;
-static uint32_t s_lastFp = 0;
-static int s_lastCastHp = 0;
-static int s_pendAnim = -1;
-static double s_pendT = 0;
-static std::vector<std::pair<int, float>> s_pendFx;
 
 static void parse_set(const std::string& c, std::unordered_set<int>& out) {
     size_t i = 0;
@@ -599,9 +593,8 @@ static void cast_save() {
     cfg_save();
 }
 
-static int s_animCur = -1, s_animPrev = -1;
-static float s_prevAnimSpeed = 0.f;
-static double s_animCurT = 0, s_animPrevT = 0;
+static int s_animCur = -1;
+static double s_animCurT = 0;
 
 static bool selected_spell_is_buff() {
     int spell = game::selected_spell();
@@ -615,79 +608,37 @@ static double s_aowPendT = 0;
 static float s_aowPos[3], s_aowMaxDisp = 0;
 static std::vector<std::pair<int, float>> s_aowFx;
 
+static bool is_flail_spin(int anim) { return anim == 625040050 || anim == 625040051 || anim == 625040053; }
+
+static void aow_save() {
+    g_cfg.aowBuff = join_set(s_aowBuff);
+    g_cfg.aowNo = join_set(s_aowNo);
+    cfg_save();
+}
+
 static void tick_cast(uintptr_t pl, Status& st) {
     if (!s_castLoaded) {
         s_castLoaded = true;
-        parse_set(g_cfg.castAnims, s_castAnims);
         parse_set(g_cfg.aowBuff, s_aowBuff);
         parse_set(g_cfg.aowNo, s_aowNo);
     }
-    st.castLearned = (int)s_castAnims.size();
+    st.castLearned = 0;
     st.castAttack = (int)s_aowBuff.size();
     if (!pl) { s_castActive = false; return; }
     double t = now();
-    uintptr_t P = game::pgd();
-    uint32_t fp = P ? mem::rdv<uint32_t>(P + g_cfg.offPgdFp) : 0;
-    int hp = 0, mhp = 0;
-    game::chr_hp(pl, hp, mhp);
     int anim = game::cur_anim(pl);
-    {
-        static float ap[3];
-        static bool apHave = false;
-        float p[3];
-        bool hp_ = game::chr_pos(pl, p);
-        if (anim != s_animCur) {
-            float sp = 0.f;
-            if (hp_ && apHave && t - s_animCurT > 0.05) {
-                float dx = p[0] - ap[0], dz = p[2] - ap[2];
-                sp = std::sqrt(dx * dx + dz * dz) / (float)(t - s_animCurT);
-            }
-            s_prevAnimSpeed = sp;
-            s_animPrev = s_animCur;
-            s_animPrevT = s_animCurT;
-            s_animCur = anim;
-            s_animCurT = t;
-            if (hp_) { memcpy(ap, p, 12); apHave = true; }
-        }
-        if (s_castActive && hp_ && apHave && t - s_animCurT > 0.3) {
-            float dx = p[0] - ap[0], dz = p[2] - ap[2];
-            float base = std::sqrt(dx * dx + dz * dz) / (float)(t - s_animCurT) / std::max(g_cfg.castSpeed, 1.f);
-            if (base > 2.5f && (s_castAnims.erase(anim) | s_aowBuff.erase(anim))) {
-                s_aowNo.insert(anim);
-                elog("Animation %d retiree du cast rapide (deplacement)", anim);
-                g_cfg.aowBuff = join_set(s_aowBuff);
-                g_cfg.aowNo = join_set(s_aowNo);
-                cast_save();
-            }
-        }
-    }
-    if (g_cfg.fastCast && anim > 0 && s_lastFp && fp < s_lastFp && hp >= s_lastCastHp) {
-        int drop = (int)(s_lastFp - fp);
-        int spell = game::selected_spell();
-        auto mt = game::param_tables("MAGIC_PARAM_ST");
-        uintptr_t row = (spell > 0 && !mt.empty()) ? game::param_find(mt[0], spell) : 0;
-        bool isSpell = false;
-        if (row) {
-            int mp = mem::rdv<int16_t>(row + 0x10);
-            int mpc = mem::rdv<int16_t>(row + 0x5C);
-            isSpell = mp > 0 && drop * 2 >= mp && drop <= mp + std::max(mpc, 0) + 2;
-        }
-        if (!isSpell && s_aowPend < 0 && !s_aowBuff.count(anim) && !s_castAnims.count(anim)) {
+    int pre = anim > 0 ? anim / 1000000 : -1;
+    bool spellAnim = pre >= 400 && pre < 500;
+    bool aowAnim = pre >= 600 && pre < 900 && !is_flail_spin(anim);
+    if (anim != s_animCur) {
+        s_animCur = anim;
+        s_animCurT = t;
+        if (aowAnim && s_aowPend < 0 && !s_aowBuff.count(anim) && !s_aowNo.count(anim)) {
             s_aowPend = anim;
             s_aowPendT = t;
             s_aowMaxDisp = 0;
             game::chr_pos(pl, s_aowPos);
             game::speffects(pl, s_aowFx);
-        }
-        if (row && isSpell) {
-            {
-                bool changed = s_castAnims.insert(anim).second;
-                if (s_animPrev > 0 && s_animCurT - s_animPrevT < 1.5 && s_prevAnimSpeed < 1.5f) changed |= s_castAnims.insert(s_animPrev).second;
-                if (changed) {
-                    elog("Sort %d : animations %d / %d apprises", spell, s_animPrev, anim);
-                    cast_save();
-                }
-            }
         }
     }
     if (s_aowPend > 0) {
@@ -709,30 +660,12 @@ static void tick_cast(uintptr_t pl, Status& st) {
             if (!known) { buff = true; break; }
         }
         if (s_aowMaxDisp > 1.5f) buff = false;
-        if (buff) {
-            s_aowBuff.insert(s_aowPend);
-            s_aowNo.erase(s_aowPend);
-        } else {
-            s_aowNo.insert(s_aowPend);
-        }
+        if (buff) s_aowBuff.insert(s_aowPend);
+        else s_aowNo.insert(s_aowPend);
         elog("Cendre de guerre anim %d : %s (deplacement %.1f m)", s_aowPend, buff ? "buff" : "attaque", s_aowMaxDisp);
         s_aowPend = -1;
-        g_cfg.aowBuff = join_set(s_aowBuff);
-        g_cfg.aowNo = join_set(s_aowNo);
-        cfg_save();
+        aow_save();
     }
-    static std::unordered_set<int> physAnims;
-    static bool physPrev = false;
-    static double physLearnUntil = 0;
-    uint32_t qitem = mem::rdv<uint32_t>(pl + 0x160, 0xFFFFFFFF);
-    uint32_t qid = qitem & 0x0FFFFFFF;
-    bool physNow = qitem != 0xFFFFFFFF && (qitem >> 28) == 0x4 && (qid == 250 || qid == 251);
-    if (physNow && !physPrev) physLearnUntil = t + 1.5;
-    physPrev = physNow;
-    if (physNow && anim > 0 && t < physLearnUntil) physAnims.insert(anim);
-    bool physick = physNow && anim > 0 && physAnims.count(anim);
-    s_lastFp = fp;
-    s_lastCastHp = hp;
     static int aowRun = -1;
     static float aowRunPos[3];
     if (anim > 0 && s_aowBuff.count(anim)) {
@@ -743,17 +676,15 @@ static void tick_cast(uintptr_t pl, Status& st) {
             if (dx * dx + dz * dz > 2.5f * 2.5f) {
                 s_aowBuff.erase(anim);
                 s_aowNo.insert(anim);
-                g_cfg.aowBuff = join_set(s_aowBuff);
-                g_cfg.aowNo = join_set(s_aowNo);
-                cfg_save();
+                aow_save();
                 elog("Cendre de guerre anim %d retiree des buffs (deplacement)", anim);
             }
         }
     } else {
         aowRun = -1;
     }
-    bool want = g_cfg.fastCast && anim > 0 &&
-                ((s_castAnims.count(anim) && selected_spell_is_buff()) || s_aowBuff.count(anim) || physick);
+    bool physick = anim > 0 && anim % 1000000 == 50210;
+    bool want = g_cfg.fastCast && anim > 0 && ((spellAnim && selected_spell_is_buff()) || s_aowBuff.count(anim) || physick);
     if (want) {
         game::set_anim_speed(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f));
         s_castActive = true;
@@ -762,143 +693,6 @@ static void tick_cast(uintptr_t pl, Status& st) {
         s_castActive = false;
     }
     st.casting = s_castActive;
-}
-
-struct JRegion { int chr; int mod; size_t size; };
-static const JRegion kJRegions[] = {{0, -1, 0x800}, {0, 0xE8, 0x200}, {0, 0x80, 0x400}, {0, 0xC0, 0x400}, {0, 0x08, 0x400}, {0, 0x58, 0x300},
-                                    {1, -1, 0x800}, {1, 0xE8, 0x200}, {1, 0x80, 0x400}, {1, 0xC0, 0x400}, {1, 0x08, 0x400}, {1, 0x58, 0x300},
-                                    {1, 0x68, 0x300}, {1, 0x70, 0x40}};
-static constexpr int kJR = sizeof(kJRegions) / sizeof(kJRegions[0]);
-
-typedef std::vector<std::vector<uint8_t>> JSnap;
-
-static bool s_jLoaded = false, s_jAir = false, s_jPend = false, s_jHaveG = false, s_jLandChecked = true;
-static JSnap s_jG;
-static std::deque<std::pair<double, JSnap>> s_jHist;
-static JSnap s_jBefore;
-static double s_jAirT = 0, s_jPendT = 0, s_jGroundT = 0, s_jLastT = 0;
-static float s_jLastY = 0, s_jVy = 0, s_jPrevVy = 0;
-
-static uintptr_t jbase(const JRegion& r, uintptr_t pl, uintptr_t tor) {
-    uintptr_t c = r.chr ? tor : pl;
-    if (!c) return 0;
-    return r.mod < 0 ? c : game::chr_module(c, r.mod);
-}
-
-static void jsnap(JSnap& s, uintptr_t pl, uintptr_t tor) {
-    s.assign(kJR, {});
-    for (int i = 0; i < kJR; ++i) {
-        uintptr_t b = jbase(kJRegions[i], pl, tor);
-        if (!b) continue;
-        s[i].resize(kJRegions[i].size);
-        if (!mem::read_raw(b, s[i].data(), s[i].size())) s[i].clear();
-    }
-}
-
-static void jsave() {
-    std::string r;
-    for (auto& f : s_jLearned) r += (r.empty() ? "" : ",") + std::to_string(f.r) + ":" + std::to_string(f.off) + ":" + std::to_string(f.ground);
-    g_cfg.jumpFlags = r;
-    cfg_save();
-}
-
-static void tick_jump(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status& st) {
-    if (!s_jLoaded) {
-        s_jLoaded = true;
-        const std::string& c = g_cfg.jumpFlags;
-        size_t i = 0;
-        while (i < c.size()) {
-            size_t k = c.find(',', i);
-            std::string tok = c.substr(i, k == std::string::npos ? std::string::npos : k - i);
-            int a = -1, o = -1, gv = 0;
-            if (sscanf(tok.c_str(), "%d:%d:%d", &a, &o, &gv) == 3 && a >= 0 && a < kJR) s_jLearned.push_back({a, o, (uint8_t)gv, 9});
-            if (k == std::string::npos) break;
-            i = k + 1;
-        }
-    }
-    st.jumpLearned = (int)s_jLearned.size();
-    if (!g_cfg.torrentInfJump || !mounted || !tor) { s_jAir = s_jPend = false; s_jHist.clear(); return; }
-    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
-    bool grounded = ph && mem::rdv<uint8_t>(ph + 0x1D1) != 0;
-    float p[3];
-    if (game::chr_pos(tor, p)) {
-        double dt = t - s_jLastT;
-        if (dt > 0.5) { s_jLastY = p[1]; s_jLastT = t; s_jVy = 0; }
-        else if (p[1] != s_jLastY || dt > 0.1) {
-            s_jPrevVy = s_jVy;
-            if (dt > 0.002) s_jVy = (p[1] - s_jLastY) / (float)dt;
-            s_jLastY = p[1];
-            s_jLastT = t;
-        }
-    }
-    if (grounded) {
-        if (s_jAir) { s_jAir = false; s_jGroundT = t; }
-        if (t - s_jGroundT > 0.4) {
-            if (!s_jCands.empty() && !s_jLandChecked) {
-                s_jLandChecked = true;
-                JSnap now;
-                jsnap(now, pl, tor);
-                for (auto it = s_jCands.begin(); it != s_jCands.end();) {
-                    auto& v = now[it->r];
-                    if ((size_t)it->off < v.size() && v[it->off] == it->ground) {
-                        bool merged = false;
-                        for (auto& l : s_jLearned)
-                            if (l.r == it->r && l.off == it->off) merged = true;
-                        if (!merged) {
-                            it->score++;
-                            if (it->score >= 2) {
-                                s_jLearned.push_back(*it);
-                                elog("Flag double saut appris : region %d offset 0x%X (sol=%d)", it->r, it->off, it->ground);
-                                jsave();
-                            }
-                        }
-                        ++it;
-                    } else {
-                        it = s_jCands.erase(it);
-                    }
-                }
-            }
-            jsnap(s_jG, pl, tor);
-            s_jHaveG = true;
-            s_jGroundT = t - 0.2;
-        }
-        s_jHist.clear();
-        return;
-    }
-    if (!s_jAir) { s_jAir = true; s_jAirT = t; s_jLandChecked = false; }
-    for (auto& f : s_jLearned) {
-        uintptr_t b = jbase(kJRegions[f.r], pl, tor);
-        if (b && mem::rdv<uint8_t>(b + f.off) != f.ground) mem::wr(b + f.off, f.ground);
-    }
-    if (!s_jHaveG || s_jLearned.size() >= 4) return;
-    JSnap cur;
-    jsnap(cur, pl, tor);
-    s_jHist.push_back({t, cur});
-    while (!s_jHist.empty() && t - s_jHist.front().first > 0.5) s_jHist.pop_front();
-    if (!s_jPend && t - s_jAirT > 0.3 && s_jPrevVy < 1.5f && s_jVy > 4.f) {
-        for (auto& h : s_jHist)
-            if (t - h.first >= 0.12) s_jBefore = h.second;
-        if (!s_jBefore.empty()) { s_jPend = true; s_jPendT = t; }
-    }
-    if (s_jPend && t - s_jPendT > 0.3) {
-        s_jPend = false;
-        std::vector<JFlag> found;
-        for (int r = 0; r < kJR; ++r) {
-            auto &g = s_jG[r], &b = s_jBefore[r], &a = cur[r];
-            if (g.empty() || b.size() != g.size() || a.size() != g.size()) continue;
-            for (size_t i = 0; i < g.size(); ++i)
-                if (g[i] == b[i] && a[i] != b[i] && a[i] <= 4 && b[i] <= 4) found.push_back({r, (int)i, g[i], 0});
-        }
-        if (s_jCands.empty()) s_jCands = found;
-        else {
-            std::vector<JFlag> keep;
-            for (auto& c : s_jCands)
-                for (auto& f : found)
-                    if (c.r == f.r && c.off == f.off) { keep.push_back(c); break; }
-            s_jCands = keep;
-        }
-        elog("Double saut detecte : %zu candidats", s_jCands.size());
-    }
 }
 
 static bool s_fly = false, s_flyHave = false, s_flyGrav = false;
@@ -915,43 +709,13 @@ static void fly_stop() {
     s_flyHave = false;
 }
 
-static float s_yawOff = 0.f;
-static int s_yawSamples = 0;
-
-static float quat_yaw(const float q[4]) { return 2.f * std::atan2(q[1], q[3]); }
-
 static float wrap_pi(float a) {
     while (a > 3.14159265f) a -= 6.2831853f;
     while (a < -3.14159265f) a += 6.2831853f;
     return a;
 }
 
-static void calib_yaw(uintptr_t tor, bool mounted) {
-    static float last[3];
-    static double lastT = 0;
-    static bool have = false;
-    if (!mounted || !tor || s_fly) { have = false; return; }
-    float p[3], q[4];
-    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
-    if (!ph || !game::chr_pos(tor, p) || !mem::read_raw(ph + 0x50, q, 16)) return;
-    double t = now();
-    if (!have) { memcpy(last, p, 12); lastT = t; have = true; return; }
-    float dx = p[0] - last[0], dz = p[2] - last[2];
-    double dt = t - lastT;
-    if (dt < 0.2) return;
-    memcpy(last, p, 12);
-    lastT = t;
-    if (std::sqrt(dx * dx + dz * dz) / dt < 4.0) return;
-    float moveYaw = std::atan2(dx, dz);
-    float off = wrap_pi(moveYaw - quat_yaw(q));
-    if (s_yawSamples < 50) {
-        s_yawOff = s_yawSamples == 0 ? off : s_yawOff + wrap_pi(off - s_yawOff) / (float)(s_yawSamples + 1);
-        ++s_yawSamples;
-    }
-}
-
 static void tick_fly(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status& st) {
-    calib_yaw(tor, mounted);
     st.flying = s_fly;
     if (!g_cfg.torrentFly || !mounted || !tor || g_menuOpen) {
         if (s_fly && (!mounted || !tor || !g_cfg.torrentFly)) { fly_stop(); msg("Vol de Torrent d\xC3\xA9sactiv\xC3\xA9"); }
@@ -980,7 +744,11 @@ static void tick_fly(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status
         if (s_flyPrevGrav == 0.f) s_flyPrevGrav = 1.f;
         s_flyGrav = true;
     }
-    if (ph) mem::wr(ph + 0x1CC, 0.f);
+    if (ph) {
+        mem::wr(ph + 0x1CC, 0.f);
+        float zv[3] = {0.f, 0.f, 0.f};
+        mem::write_raw(ph + 0x120, zv, 12);
+    }
     for (uintptr_t c : {pl, tor})
         if (uintptr_t f = game::chr_module(c, g_cfg.offFallMod)) mem::wr(f + g_cfg.offFallTimer, 0.f);
     float p[3];
@@ -999,8 +767,7 @@ static void tick_fly(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status
         mem::read_raw(cam + 0x30, fwd, 12);
         mem::read_raw(cam + 0x40, cpos, 12);
     }
-    float tox = p[0] - cpos[0], toy = p[1] - cpos[1], toz = p[2] - cpos[2];
-    if (fwd[0] * tox + fwd[1] * toy + fwd[2] * toz < 0) { fwd[0] = -fwd[0]; fwd[1] = -fwd[1]; fwd[2] = -fwd[2]; }
+    (void)cpos;
     float fl = std::sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
     if (fl > 1e-4f) { fwd[0] /= fl; fwd[1] /= fl; fwd[2] /= fl; }
     float iy = 0;
@@ -1013,72 +780,14 @@ static void tick_fly(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status
         if (std::fabs(sy) > 0.25f) iy += sy;
     }
     iy = std::clamp(iy, -1.f, 1.f);
-    float speed = 13.f * (g_cfg.torrentSpeed ? std::clamp(g_cfg.torrentMult, 1.f, 3.f) : 1.f);
+    float speed = 10.35f * (g_cfg.torrentSpeed ? std::clamp(g_cfg.torrentMult, 1.f, 3.f) : 1.f);
     for (int i = 0; i < 3; ++i) s_flyPos[i] += fwd[i] * iy * speed * (float)dt;
     game::chr_set_pos(tor, s_flyPos);
     if (ph && (std::fabs(fwd[0]) + std::fabs(fwd[2]) > 1e-3f)) {
-        float yaw = wrap_pi(std::atan2(fwd[0], fwd[2]) - s_yawOff);
+        float yaw = wrap_pi(std::atan2(-fwd[0], -fwd[2]));
         float q[4] = {0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
         mem::write_raw(ph + 0x50, q, 16);
         mem::write_raw(ph + 0x60, q, 16);
-    }
-}
-
-static int s_pauseCount[0x46];
-static std::vector<int> s_pauseIdx;
-static bool s_pauseLoaded = false, s_escPrev = false, s_pendPause = false;
-static double s_pendPauseT = 0;
-static uint8_t s_preUi[0x46];
-
-static void tick_menus(double t, uintptr_t pl, Status& st) {
-    if (!s_pauseLoaded) {
-        s_pauseLoaded = true;
-        std::unordered_set<int> v;
-        parse_set(g_cfg.pauseUi, v);
-        for (int i : v) s_pauseIdx.push_back(i - 1);
-    }
-    uint8_t ui[0x46];
-    bool ok = pl && game::menu_ui_states(ui, sizeof(ui));
-    bool vis = false;
-    if (ok)
-        for (int i : s_pauseIdx)
-            if (i >= 0 && i < 0x46 && (ui[i] & 2)) vis = true;
-    int talk = ok ? game::talk_menu_id() : -1;
-    static int lastTalk = -2;
-    if (talk != lastTalk) {
-        elog("Menu de dialogue : talk id %d", talk);
-        lastTalk = talk;
-    }
-    if (talk > 0) vis = true;
-    g_gameMenu = vis;
-    st.pauseLearned = !s_pauseIdx.empty();
-    if (!ok) return;
-    bool fg = GetForegroundWindow() == overlay::hwnd();
-    bool esc = fg && !g_menuOpen && ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) || (overlay::pad_buttons() & XINPUT_GAMEPAD_START));
-    if (esc && !s_escPrev && !s_pendPause && s_pauseIdx.empty()) {
-        memcpy(s_preUi, ui, sizeof(ui));
-        s_pendPause = true;
-        s_pendPauseT = t;
-    }
-    s_escPrev = esc;
-    if (s_pendPause && t - s_pendPauseT > 0.6) {
-        s_pendPause = false;
-        int newly = 0;
-        for (int i = 0; i < 0x46; ++i)
-            if (!(s_preUi[i] & 2) && (ui[i] & 2)) { s_pauseCount[i]++; ++newly; }
-        if (newly) {
-            std::string r;
-            for (int i = 0; i < 0x46; ++i)
-                if (s_pauseCount[i] >= 2) {
-                    s_pauseIdx.push_back(i);
-                    r += (r.empty() ? "" : ",") + std::to_string(i + 1);
-                }
-            if (!s_pauseIdx.empty()) {
-                g_cfg.pauseUi = r;
-                cfg_save();
-                elog("Menu Echap reconnu : elements UI %s", r.c_str());
-            }
-        }
     }
 }
 
@@ -1092,10 +801,8 @@ static void tick_weight(uintptr_t pl, Status& st) {
     if (!pl || !game::names_ready() || !game::params_ready()) return;
     if (!s_wTried) {
         s_wTried = true;
-        uint32_t acc = game::find_name({13, 113, 316, 416}, {{L"great-jar"}, {L"grande", L"jarre"}, {L"jarre", L"géante"}, {L"jarre", L"geante"}, {L"arsenal"}});
-        auto at = game::param_tables("EQUIP_PARAM_ACCESSORY_ST");
-        uintptr_t row = (acc && !at.empty()) ? game::param_find(at[0], (int32_t)acc) : 0;
-        s_wSp = row ? mem::rdv<int32_t>(row + 4, -1) : -1;
+        uint32_t acc = 1032;
+        s_wSp = 310320;
         auto stb = game::param_tables("SP_EFFECT_PARAM_ST");
         uintptr_t sp = (s_wSp > 0 && !stb.empty()) ? game::param_find(stb[0], s_wSp) : 0;
         if (sp) s_wOrig = mem::rdv<float>(sp + 0xE4, 1.f);
@@ -1147,10 +854,8 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
         s_rwId = rw;
         std::string n = (rw && rw < 0x10000000) ? game::weapon_name(rw) : "";
         st.rightWeapon = n;
-        std::string l = n;
-        for (auto& c : l) c = (char)tolower((unsigned char)c);
-        s_rwFlail = l.find("fl\xC3\xA9" "au") != std::string::npos || l.find("fleau") != std::string::npos || l.find("flail") != std::string::npos;
-        if (!game::names_ready()) s_rwId = 0;
+        s_rwFlail = rw >= 13000000 && rw < 14000000;
+        if (!game::names_ready() && n.empty()) st.rightWeapon.clear();
     }
     st.flailHeld = s_rwFlail;
     uint32_t fp = mem::rdv<uint32_t>(P + g_cfg.offPgdFp);
@@ -1165,7 +870,7 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
     static uint8_t energyPrev = 0;
     static uintptr_t energyChr = 0;
     uintptr_t dm = game::chr_module(pl, g_cfg.offDataMod);
-    if (g_cfg.flailSpin && s_rwFlail && dm && !s_flailAnims.empty()) {
+    if (g_cfg.flailSpin && s_rwFlail && dm) {
         uint8_t f = mem::rdv<uint8_t>(dm + g_cfg.offChrFlags);
         if (!energySet) { energyPrev = f & 0x0C; energySet = true; energyChr = pl; }
         if ((f & 0x0C) != 0x0C) mem::wr(dm + g_cfg.offChrFlags, (uint8_t)(f | 0x0C));
@@ -1177,7 +882,7 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
         energySet = false;
     }
     float mult = std::clamp(g_cfg.flailMult, 1.f, 25.f);
-    bool want = g_cfg.flailSpin && s_rwFlail && anim > 0 && s_flailAnims.count(anim);
+    bool want = g_cfg.flailSpin && s_rwFlail && anim > 0 && (is_flail_spin(anim) || s_flailAnims.count(anim));
     if (want) {
         game::set_anim_speed(pl, mult);
         s_flailOn = true;
@@ -1189,115 +894,54 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
     return s_flailOn;
 }
 
-struct VCand { int reg, off, hits, miss; };
-static std::vector<VCand> s_vCands;
-static int s_vReg = -1, s_vOff = -1;
-static bool s_vLoaded = false, s_jumpPrev = false;
-static float s_vLastY = 0, s_vVy = 0;
-static double s_vLastT = 0, s_vCancelUntil = 0, s_jumpPressT = -10;
-
-static uintptr_t vel_region(uintptr_t tor, int reg) {
-    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
-    if (!ph) return 0;
-    if (reg == 0) return ph;
-    return mem::ptr(ph + (reg == 1 ? 0x98 : 0xA0));
-}
+static bool s_jumpPrev = false;
+static double s_vCancelUntil = 0, s_jumpPressT = -10;
 
 static void tick_fallvel(double t, uintptr_t tor, bool mounted, Status& st) {
-    if (!s_vLoaded) {
-        s_vLoaded = true;
-        sscanf(g_cfg.fallVelField.c_str(), "%d:%d", &s_vReg, &s_vOff);
-    }
-    st.fallVelLearned = s_vReg >= 0 && s_vOff >= 0;
+    st.fallVelLearned = true;
     if (!g_cfg.torrentInfJump || !mounted || !tor) { s_jumpPrev = false; return; }
     uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
     bool airborne = ph && mem::rdv<uint8_t>(ph + 0x1D1) == 0;
-    float p[3];
-    if (game::chr_pos(tor, p)) {
-        double dt = t - s_vLastT;
-        if (dt > 0.5) { s_vLastY = p[1]; s_vLastT = t; }
-        else if (p[1] != s_vLastY || dt > 0.1) {
-            if (dt > 0.002) s_vVy = (p[1] - s_vLastY) / (float)dt;
-            s_vLastY = p[1];
-            s_vLastT = t;
-        }
-    }
-    if (!st.fallVelLearned && airborne && s_vVy < -6.f) {
-        float buf[0x100];
-        for (int reg = 0; reg < 3; ++reg) {
-            uintptr_t b = vel_region(tor, reg);
-            if (!b || !mem::read_raw(b, buf, sizeof(buf))) continue;
-            for (int i = 0; i < 0x100; ++i) {
-                bool match = std::isfinite(buf[i]) && std::fabs(buf[i] - s_vVy) < std::max(0.8f, std::fabs(s_vVy) * 0.12f);
-                VCand* c = nullptr;
-                for (auto& v : s_vCands)
-                    if (v.reg == reg && v.off == i * 4) { c = &v; break; }
-                if (!c) {
-                    if (match && s_vCands.size() < 4000) s_vCands.push_back({reg, i * 4, 1, 0});
-                    continue;
-                }
-                if (match) c->hits++;
-                else c->miss++;
-            }
-        }
-        for (auto& v : s_vCands)
-            if (v.hits >= 25 && v.miss * 10 <= v.hits) {
-                s_vReg = v.reg;
-                s_vOff = v.off;
-                g_cfg.fallVelField = std::to_string(v.reg) + ":" + std::to_string(v.off);
-                cfg_save();
-                elog("Vitesse de chute de Torrent trouvee : region %d offset 0x%X", v.reg, v.off);
-                break;
-            }
-    }
     bool fg = GetForegroundWindow() == overlay::hwnd();
     bool jump = fg && !g_menuOpen && ((GetAsyncKeyState(g_cfg.jumpKey) & 0x8000) || (overlay::pad_buttons() & XINPUT_GAMEPAD_A));
-    if (jump && !s_jumpPrev) s_jumpPressT = t;
-    if (jump && !s_jumpPrev && airborne) s_vCancelUntil = t + 0.4;
+    bool press = jump && !s_jumpPrev;
     s_jumpPrev = jump;
-    if (t < s_vCancelUntil && s_vReg >= 0) {
-        uintptr_t b = vel_region(tor, s_vReg);
-        if (b) {
-            float v = mem::rdv<float>(b + s_vOff, 0.f);
-            if (v < 0.f) mem::wr(b + s_vOff, 0.f);
-            else s_vCancelUntil = 0;
+    if (press) s_jumpPressT = t;
+    if (airborne) {
+        if (uintptr_t af = game::chr_module(tor, 0x08)) {
+            uint8_t f = mem::rdv<uint8_t>(af + 0x214);
+            if (f & 0x20) mem::wr(af + 0x214, (uint8_t)(f & ~0x20));
+        }
+    }
+    if (press && airborne) s_vCancelUntil = t + 0.4;
+    if (t < s_vCancelUntil && ph) {
+        float v = mem::rdv<float>(ph + 0x124, 0.f);
+        if (v < 0.f) {
+            mem::wr(ph + 0x124, 0.f);
+            mem::wr(ph + 0x134, 0.f);
+        } else {
+            s_vCancelUntil = 0;
         }
     }
 }
 
-static bool s_jhHave = false, s_jhBoosted = false;
-static float s_jhLastY = 0, s_jhPrevV = 0;
+static bool s_jhBoosted = false;
+static float s_jhPrevV = 0;
 
 static void tick_jumpheight(uintptr_t tor, bool mounted) {
     float mult = std::clamp(g_cfg.jumpHeight, 1.f, 10.f);
-    if (mult <= 1.001f || !mounted || !tor) { s_jhHave = false; s_jhBoosted = false; return; }
+    if (mult <= 1.001f || !mounted || !tor) { s_jhBoosted = false; return; }
     uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
-    bool airborne = ph && mem::rdv<uint8_t>(ph + 0x1D1) == 0;
-    float p[3];
-    if (!game::chr_pos(tor, p)) { s_jhHave = false; return; }
-    if (s_vReg >= 0 && s_vOff >= 0) {
-        uintptr_t b = vel_region(tor, s_vReg);
-        float v = b ? mem::rdv<float>(b + s_vOff, 0.f) : 0.f;
-        if (!airborne && v <= 0.5f) s_jhBoosted = false;
-        if (v > 2.f && s_jhPrevV <= 2.f && !s_jhBoosted && b && now() - s_jumpPressT < 0.5) {
-            mem::wr(b + s_vOff, v * std::sqrt(mult));
-            s_jhBoosted = true;
-        }
-        if (v < 0.f) s_jhBoosted = false;
-        s_jhPrevV = v;
-        return;
+    if (!ph) return;
+    bool airborne = mem::rdv<uint8_t>(ph + 0x1D1) == 0;
+    float v = mem::rdv<float>(ph + 0x124, 0.f);
+    if (!airborne && v <= 0.5f) s_jhBoosted = false;
+    if (v > 2.f && s_jhPrevV <= 2.f && !s_jhBoosted && now() - s_jumpPressT < 0.5) {
+        mem::wr(ph + 0x124, v * std::sqrt(mult));
+        s_jhBoosted = true;
     }
-    if (!airborne || now() - s_jumpPressT > 1.2) { s_jhHave = false; return; }
-    if (!s_jhHave) { s_jhLastY = p[1]; s_jhHave = true; return; }
-    float dy = p[1] - s_jhLastY;
-    if (dy > 0.f && dy < 5.f) {
-        float ny = p[1] + dy * (mult - 1.f);
-        float np[3] = {p[0], ny, p[2]};
-        game::chr_set_pos(tor, np);
-        s_jhLastY = ny;
-    } else {
-        s_jhLastY = p[1];
-    }
+    if (v < 0.f) s_jhBoosted = false;
+    s_jhPrevV = v;
 }
 
 static bool s_mcHave = false;

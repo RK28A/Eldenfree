@@ -426,7 +426,7 @@ static void tab_player(const feat::Status& st) {
 
     card_begin("cast", "Cast rapide des buffs", "Acc\xC3\xA9l\xC3\xA8re uniquement les buffs : sorts / incantations de buff, cendres de guerre de buff (hurlements...) et la Fiole merveilleuse. Les attaques gardent leur vitesse normale.");
     char cb[64];
-    snprintf(cb, sizeof(cb), "%d sorts / %d cendres buff", st.castLearned, st.castAttack);
+    snprintf(cb, sizeof(cb), "%d cendre(s) buff", st.castAttack);
     right_pill(st.casting ? "Cast en cours" : cb, st.casting ? C_WARN : C_DIM);
     if (toggle("Cast rapide", &g_cfg.fastCast)) save();
     ImGui::PushItemWidth(-1);
@@ -457,9 +457,7 @@ static void tab_plus(const feat::Status& st) {
     ImGui::SliderFloat("##fm", &g_cfg.flailMult, 1.f, 25.f, "Vitesse de rotation  x%.1f");
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     ImGui::PopItemWidth();
-    char fb[96];
-    snprintf(fb, sizeof(fb), "%d animation(s) apprise(s). La 1re utilisation de la comp\xC3\xA9tence sert \xC3\xA0 l'apprendre.", st.flailLearned);
-    hint(fb);
+    hint("Rotation du Fl\xC3\xA9" "au d'armes reconnue directement ; les autres fl\xC3\xA9" "aux sont appris \xC3\xA0 la 1re utilisation.");
     if (ImGui::Button("Oublier les animations du fl\xC3\xA9" "au")) feat::post(feat::Act::ResetFlail);
     card_end();
 

@@ -356,7 +356,7 @@ bool is_mounted(uintptr_t pl) {
 
 static bool torrent_like(uintptr_t c, uintptr_t pl, bool rideFlag = false) {
     if (!c || c == pl || !is_chr(c)) return false;
-    if (chr_id(c) == 8000) return true;
+    if (chr_id(c) == 8002 || chr_id(c) == 8000) return true;
     if (!rideFlag) return false;
     uintptr_t ride = chr_module(c, g_cfg.offRideMod);
     return ride && rdv<uint8_t>(ride + 0x33) != 0;
@@ -472,17 +472,9 @@ static void patch_scan(CodePatch& p) {
         uintptr_t ref = s_patches[P_MAP1].addr;
         static uintptr_t hits[256];
         size_t n = aob_all(p.aob, hits, 256);
-        uintptr_t best = 0;
-        uint64_t bestD = ~0ull;
-        if (n == 1) {
-            best = hits[0];
-            bestD = ref ? (best > ref ? best - ref : ref - best) : 0;
-        } else {
-            for (size_t i = 0; i < n && ref; ++i) {
-                uint64_t d = hits[i] > ref ? hits[i] - ref : ref - hits[i];
-                if (d < bestD) { bestD = d; best = hits[i]; }
-            }
-        }
+        uintptr_t best = n == 1 ? hits[0] : 0;
+        if (!best && kPatchAlt[idx] && aob_all(kPatchAlt[idx], hits, 256) == 1) best = hits[0];
+        uint64_t bestD = best && ref ? (best > ref ? best - ref : ref - best) : 0;
         p.addr = best;
         elog("Patch %-13s %s -> %p (%zu candidats, distance 0x%llX)", p.name, p.addr ? "ok" : "INTROUVABLE", (void*)p.addr, n,
              (unsigned long long)(bestD == ~0ull ? 0 : bestD));
@@ -590,9 +582,7 @@ int speffect_state_set(int row, bool zero) {
 int cur_anim(uintptr_t chr) {
     uintptr_t ta = chr_module(chr, g_cfg.offTimeActMod);
     if (!ta) return -1;
-    uint32_t ri = rdv<uint32_t>(ta + 0xC4, 0xFFFFFFFF);
-    if (ri >= 10) return -1;
-    return rdv<int32_t>(ta + 0x20 + ri * 0x10, -1);
+    return rdv<int32_t>(ta + 0x20, -1);
 }
 
 struct EzArg {
@@ -777,6 +767,21 @@ static bool inv_find() {
 
 bool inventory(std::vector<InvItem>& out) {
     out.clear();
+    if (uintptr_t P = pgd()) {
+        uintptr_t head = ptr(P + 0x418);
+        uint32_t len = rdv<uint32_t>(P + 0x420), cap = rdv<uint32_t>(P + 0x414);
+        if (head && cap && cap <= 8192 && len <= cap) {
+            uint32_t seen = 0;
+            for (uint32_t i = 0; i < cap && seen < len; ++i) {
+                uint32_t e[3];
+                if (!read_raw(head + (uintptr_t)i * 0x18, e, 12)) break;
+                if (e[0] == 0 || e[0] == 0xFFFFFFFF || e[1] == 0xFFFFFFFF) continue;
+                ++seen;
+                if (e[2] >= 1 && e[2] <= 9999) out.push_back({e[0], e[1], e[2]});
+            }
+            if (!out.empty()) return true;
+        }
+    }
     for (int attempt = 0; attempt < 2; ++attempt) {
         if (!s_inv.arr && !inv_find()) return false;
         int v, j;
@@ -1203,6 +1208,8 @@ int selected_spell() {
     if (!P) return -1;
     if (!s_magicData || rdv<uintptr_t>(s_magicData + 8) != P + 0x2B0) {
         s_magicData = 0;
+        uintptr_t m = ptr(P + 0x530);
+        if (m && rdv<uintptr_t>(m + 8) == P + 0x2B0) s_magicData = m;
         for (int off = 0x2B0; off < 0x1000 && !s_magicData; off += 8) {
             uintptr_t m = ptr(P + off);
             if (m && rdv<uintptr_t>(m + 8) == P + 0x2B0) {
