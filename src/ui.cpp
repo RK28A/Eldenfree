@@ -400,6 +400,12 @@ static void tab_torrent(const feat::Status& st) {
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     card_end();
 
+    card_begin("torfly", "Vol", "Sur Torrent : maintiens Saut (F / A) pour voler, maintiens encore pour atterrir. Torrent regarde l\xC3\xA0 o\xC3\xB9 regarde la cam\xC3\xA9ra : la cam\xC3\xA9ra choisit la direction, le stick de d\xC3\xA9placement sert seulement \xC3\xA0 avancer ou reculer.");
+    right_pill(st.flying ? "En vol" : "Au sol", st.flying ? C_OK : C_DIM);
+    if (toggle("Vol sur Torrent", &g_cfg.torrentFly)) save();
+    hint("Vitesse : course normale de Torrent (x le multiplicateur de vitesse s'il est activ\xC3\xA9).");
+    card_end();
+
     card_begin("torjump", "Saut infini", "Torrent peut sauter \xC3\xA0 nouveau en l'air, sans limite.");
     patch_toggle("Saut infini sur Torrent", &g_cfg.torrentInfJump, st.pJump);
     ImGui::PushItemWidth(-1);

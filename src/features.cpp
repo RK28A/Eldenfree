@@ -890,13 +890,48 @@ static void fly_stop() {
     s_flyHave = false;
 }
 
+static float s_yawOff = 0.f;
+static int s_yawSamples = 0;
+
+static float quat_yaw(const float q[4]) { return 2.f * std::atan2(q[1], q[3]); }
+
+static float wrap_pi(float a) {
+    while (a > 3.14159265f) a -= 6.2831853f;
+    while (a < -3.14159265f) a += 6.2831853f;
+    return a;
+}
+
+static void calib_yaw(uintptr_t tor, bool mounted) {
+    static float last[3];
+    static double lastT = 0;
+    static bool have = false;
+    if (!mounted || !tor || s_fly) { have = false; return; }
+    float p[3], q[4];
+    uintptr_t ph = game::chr_module(tor, g_cfg.offPhysMod);
+    if (!ph || !game::chr_pos(tor, p) || !mem::read_raw(ph + 0x50, q, 16)) return;
+    double t = now();
+    if (!have) { memcpy(last, p, 12); lastT = t; have = true; return; }
+    float dx = p[0] - last[0], dz = p[2] - last[2];
+    double dt = t - lastT;
+    if (dt < 0.2) return;
+    memcpy(last, p, 12);
+    lastT = t;
+    if (std::sqrt(dx * dx + dz * dz) / dt < 4.0) return;
+    float moveYaw = std::atan2(dx, dz);
+    float off = wrap_pi(moveYaw - quat_yaw(q));
+    if (s_yawSamples < 50) {
+        s_yawOff = s_yawSamples == 0 ? off : s_yawOff + wrap_pi(off - s_yawOff) / (float)(s_yawSamples + 1);
+        ++s_yawSamples;
+    }
+}
+
 static void tick_fly(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status& st) {
+    calib_yaw(tor, mounted);
     st.flying = s_fly;
-    if (!g_cfg.torrentInfJump || !mounted || !tor || g_menuOpen) {
-        if (s_fly && (!mounted || !tor || !g_cfg.torrentInfJump)) { fly_stop(); msg("Vol de Torrent d\xC3\xA9sactiv\xC3\xA9"); }
+    if (!g_cfg.torrentFly || !mounted || !tor || g_menuOpen) {
+        if (s_fly && (!mounted || !tor || !g_cfg.torrentFly)) { fly_stop(); msg("Vol de Torrent d\xC3\xA9sactiv\xC3\xA9"); }
         s_jumpHeldSince = 0;
-        if (!s_fly) return;
-        if (g_menuOpen) return;
+        if (!s_fly || g_menuOpen) return;
     }
     bool fg = GetForegroundWindow() == overlay::hwnd();
     uint32_t pb = overlay::pad_buttons();
@@ -934,38 +969,34 @@ static void tick_fly(double t, uintptr_t pl, uintptr_t tor, bool mounted, Status
     }
     uintptr_t wcm = mem::ptr(game::g.worldChrMan);
     uintptr_t cam = wcm ? mem::ptr(wcm + 0x1ECF0) : 0;
-    float fwd[3] = {0, 0, 0}, right[3] = {0, 0, 0}, cpos[3] = {0, 0, 0};
+    float fwd[3] = {0, 0, 0}, cpos[3] = {0, 0, 0};
     if (cam) {
         mem::read_raw(cam + 0x30, fwd, 12);
-        mem::read_raw(cam + 0x10, right, 12);
         mem::read_raw(cam + 0x40, cpos, 12);
     }
     float tox = p[0] - cpos[0], toy = p[1] - cpos[1], toz = p[2] - cpos[2];
     if (fwd[0] * tox + fwd[1] * toy + fwd[2] * toz < 0) { fwd[0] = -fwd[0]; fwd[1] = -fwd[1]; fwd[2] = -fwd[2]; }
-    float rl = std::sqrt(right[0] * right[0] + right[2] * right[2]);
-    if (rl > 1e-4f) { right[0] /= rl; right[2] /= rl; }
-    float cross = fwd[2] * right[0] - fwd[0] * right[2];
-    if (cross < 0) { right[0] = -right[0]; right[2] = -right[2]; }
-    float ix = 0, iy = 0;
+    float fl = std::sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
+    if (fl > 1e-4f) { fwd[0] /= fl; fwd[1] /= fl; fwd[2] /= fl; }
+    float iy = 0;
     if (fg) {
         auto key = [](UINT sc) { return (GetAsyncKeyState(MapVirtualKeyW(sc, MAPVK_VSC_TO_VK)) & 0x8000) != 0; };
         if (key(0x11)) iy += 1;
         if (key(0x1F)) iy -= 1;
-        if (key(0x20)) ix += 1;
-        if (key(0x1E)) ix -= 1;
         float sx, sy;
         overlay::pad_stick(sx, sy);
-        if (std::fabs(sx) > 0.25f) ix += sx;
         if (std::fabs(sy) > 0.25f) iy += sy;
     }
-    ix = std::clamp(ix, -1.f, 1.f);
     iy = std::clamp(iy, -1.f, 1.f);
-    bool dash = fg && ((GetAsyncKeyState(VK_SPACE) & 0x8000) || (GetAsyncKeyState(VK_SHIFT) & 0x8000) || (pb & XINPUT_GAMEPAD_B));
-    float speed = g_cfg.flySpeed * std::max(g_cfg.torrentMult, 1.f) * (dash ? 2.f : 1.f);
-    float fl = std::sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
-    if (fl > 1e-4f) { fwd[0] /= fl; fwd[1] /= fl; fwd[2] /= fl; }
-    for (int i = 0; i < 3; ++i) s_flyPos[i] += (fwd[i] * iy + (i == 1 ? 0.f : right[i] * ix)) * speed * (float)dt;
+    float speed = 13.f * (g_cfg.torrentSpeed ? std::clamp(g_cfg.torrentMult, 1.f, 3.f) : 1.f);
+    for (int i = 0; i < 3; ++i) s_flyPos[i] += fwd[i] * iy * speed * (float)dt;
     game::chr_set_pos(tor, s_flyPos);
+    if (ph && (std::fabs(fwd[0]) + std::fabs(fwd[2]) > 1e-3f)) {
+        float yaw = wrap_pi(std::atan2(fwd[0], fwd[2]) - s_yawOff);
+        float q[4] = {0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+        mem::write_raw(ph + 0x50, q, 16);
+        mem::write_raw(ph + 0x60, q, 16);
+    }
 }
 
 static int s_pauseCount[0x46];
@@ -1322,6 +1353,7 @@ static DWORD WINAPI tick_thread(void*) {
             tick_patches(st);
             tick_fallvel(t, tor, mounted, st);
             tick_jumpheight(tor, mounted);
+            tick_fly(t, pl, tor, mounted, st);
             pump_delayed();
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;
