@@ -9,6 +9,8 @@ namespace watch {
 
 static std::atomic<uintptr_t> s_addr[2], s_vt[2];
 static std::atomic<uintptr_t> s_hits[32];
+static std::atomic<bool> s_hitW[32];
+static std::atomic<unsigned long long> s_writes{0};
 static std::atomic<int> s_nh{0};
 static std::atomic<unsigned long long> s_count{0};
 static DWORD s_tls = TLS_OUT_OF_INDEXES;
@@ -17,13 +19,42 @@ static std::unordered_map<DWORD, uint64_t> s_applied;
 static uint64_t s_gen = 0;
 static ULONGLONG s_lastScan = 0;
 
-static void record(uintptr_t rip) {
+static void record(uintptr_t rip, bool write) {
     int n = s_nh.load();
     for (int i = 0; i < n && i < 32; ++i)
-        if (s_hits[i].load() == rip) return;
+        if (s_hits[i].load() == rip) {
+            if (write) s_hitW[i].store(true);
+            return;
+        }
     if (n >= 32) return;
     s_hits[n].store(rip);
+    s_hitW[n].store(write);
     s_nh.store(n + 1);
+}
+
+static void zero_reg8(CONTEXT* c, int reg, bool rex) {
+    DWORD64* r64[16] = {&c->Rax, &c->Rcx, &c->Rdx, &c->Rbx, nullptr, &c->Rbp, &c->Rsi, &c->Rdi,
+                        &c->R8, &c->R9, &c->R10, &c->R11, &c->R12, &c->R13, &c->R14, &c->R15};
+    if (reg >= 4 && reg < 8 && !rex) {
+        *r64[reg - 4] &= ~0xFF00ull;
+        return;
+    }
+    if (r64[reg]) *r64[reg] &= ~0xFFull;
+}
+
+static void zero_source(CONTEXT* c) {
+    uint8_t p[8];
+    if (!mem::read_raw((uintptr_t)c->Rip - 8, p, 8)) return;
+    int modrm = -1, rex = 0;
+    if (p[5] == 0x88 && (p[6] & 0xC0) == 0x40 && (p[6] & 7) != 4 && p[7] == 0x36) {
+        modrm = p[6];
+        if ((p[4] & 0xF0) == 0x40) rex = p[4];
+    } else if (p[4] == 0x88 && (p[5] & 0xC7) == 0x44 && p[7] == 0x36) {
+        modrm = p[5];
+        if ((p[3] & 0xF0) == 0x40) rex = p[3];
+    }
+    if (modrm < 0) return;
+    zero_reg8(c, ((modrm >> 3) & 7) | ((rex & 4) ? 8 : 0), rex != 0);
 }
 
 static LONG CALLBACK veh(EXCEPTION_POINTERS* ep) {
@@ -42,11 +73,14 @@ static LONG CALLBACK veh(EXCEPTION_POINTERS* ep) {
         uintptr_t first = 0;
         if (!mem::read_raw(a - 0x36, &first, 8) || first != vt) continue;
         uint8_t b = 0;
-        if (mem::read_raw(a, &b, 1) && b) {
+        bool w = mem::read_raw(a, &b, 1) && b;
+        if (w) {
             b = 0;
             mem::write_raw(a, &b, 1);
+            zero_source(c);
+            s_writes.fetch_add(1, std::memory_order_relaxed);
         }
-        record((uintptr_t)c->Rip);
+        record((uintptr_t)c->Rip, w);
     }
     TlsSetValue(s_tls, nullptr);
     return EXCEPTION_CONTINUE_EXECUTION;
@@ -122,6 +156,10 @@ void set(uintptr_t a0, uintptr_t a1) {
 bool active() { return s_cur[0] || s_cur[1]; }
 
 unsigned long long count() { return s_count.load(); }
+
+bool hit_write(int i) { return i >= 0 && i < 32 && s_hitW[i].load(); }
+
+unsigned long long writes() { return s_writes.load(); }
 
 int hits(uintptr_t* out, int max) {
     int n = s_nh.load();

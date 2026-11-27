@@ -572,6 +572,11 @@ static void tab_diag(const feat::Status& st) {
         status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "appelle Torrent pour le d\xC3\xA9tecter");
         ImGui::EndTable();
     }
+    if (ImGui::Button("Copier le log dans le presse-papiers", ImVec2(-1, 0))) {
+        std::string all = "EldenFree " EF_VERSION "\n";
+        for (auto& l : log_tail()) all += l + "\n";
+        ImGui::SetClipboardText(all.c_str());
+    }
     hint("Journal (EldenFree.log dans %LOCALAPPDATA%\\EldenFree) :");
     ImGui::PushFont(g_small);
     ImGui::BeginChild("logtail", ImVec2(0, 0), ImGuiChildFlags_Borders);

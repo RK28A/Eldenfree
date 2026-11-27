@@ -203,7 +203,7 @@ void elog(const char* fmt, ...) {
     vsnprintf(line + n, sizeof(line) - n, fmt, ap);
     va_end(ap);
     s_tail.push_back(line);
-    while (s_tail.size() > 60) s_tail.pop_front();
+    while (s_tail.size() > 400) s_tail.pop_front();
     FILE* f = _wfopen((g_dir + L"EldenFree.log").c_str(), L"a");
     if (!f) return;
     fputs(line, f);

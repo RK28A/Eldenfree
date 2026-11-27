@@ -1234,11 +1234,25 @@ static void tick_rideguard(uintptr_t pl, uintptr_t tor, Status& st) {
     int n = watch::hits(h, 32);
     st.rideGuardHits = n;
     for (; s_rfLogged < n; ++s_rfLogged) {
-        uint8_t b[12] = {};
-        mem::read_raw(h[s_rfLogged] - 12, b, 12);
-        elog("Garde monture : acces depuis RVA 0x%llX (%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X)", (unsigned long long)(h[s_rfLogged] - mem::g_base),
-             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11]);
+        uint8_t b[32] = {};
+        mem::read_raw(h[s_rfLogged] - 16, b, 32);
+        char hex[112];
+        int o = 0;
+        for (int k = 0; k < 32; ++k) o += snprintf(hex + o, sizeof(hex) - o, "%s%02X", k == 16 ? " | " : (k ? " " : ""), b[k]);
+        elog("Garde monture : acces RVA 0x%llX : %s", (unsigned long long)(h[s_rfLogged] - mem::g_base), hex);
     }
+    static bool wasMounted = false;
+    static unsigned long long lastWrites = 0;
+    bool m = pl && game::is_mounted(pl);
+    unsigned long long w = watch::writes();
+    if (wasMounted && !m) {
+        std::string ws;
+        for (int k = 0; k < n; ++k)
+            if (watch::hit_write(k)) { char t[24]; snprintf(t, sizeof(t), " 0x%llX", (unsigned long long)(h[k] - mem::g_base)); ws += t; }
+        elog("Descente de Torrent : %llu interdiction(s) bloquee(s) depuis la derniere, ecritures :%s", w - lastWrites, ws.empty() ? " aucune" : ws.c_str());
+    }
+    if (wasMounted != m) lastWrites = w;
+    wasMounted = m;
 }
 
 static bool s_mcHave = false;
