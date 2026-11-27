@@ -9,8 +9,10 @@
 #include <deque>
 #include <map>
 #include <cmath>
+#include <cwctype>
 #include <algorithm>
 #include <unordered_set>
+#include <unordered_map>
 
 namespace feat {
 
@@ -105,6 +107,53 @@ static const uint32_t kGracesDlc[] = {
 static const uint32_t kMapBase[] = {62004, 62005, 62006, 62007, 62008, 62009, 62010, 62011, 62012, 62020, 62021, 62022, 62030,
                                     62031, 62032, 62040, 62041, 62050, 62051, 62052, 62060, 62061, 62062, 62063, 62064, 82001};
 static const uint32_t kMapDlc[] = {62080, 62081, 62082, 62083, 62084, 82002};
+
+static bool is_map_goods(uint32_t id) {
+    std::wstring n;
+    if (!game::goods_name(id, n) || n.size() < 5) return false;
+    for (auto& c : n) c = (wchar_t)towlower(c);
+    if (n.rfind(L"map", 0) == 0 && n.find(L':') != std::wstring::npos && n.find(L':') < 6) return true;
+    if (n.rfind(L"carte", 0) == 0 && n.find(L':') != std::wstring::npos && n.find(L':') < 9) return true;
+    return false;
+}
+
+static void map_extra(bool dlc, bool on) {
+    if (!need_params()) return;
+    int pieces = 0, lots = 0;
+    for (uintptr_t t : game::param_tables("WORLD_MAP_PIECE_PARAM_ST"))
+        for (int i = 0, n = game::param_rows(t); i < n; ++i) {
+            int32_t id;
+            uintptr_t d;
+            if (!game::param_row(t, i, id, d)) continue;
+            uint32_t open = mem::rdv<uint32_t>(d + 0x4), acq = mem::rdv<uint32_t>(d + 0x18);
+            if (open < 62000 || open >= 63000) continue;
+            if ((open >= 62080 && open < 62100) != dlc) continue;
+            game::flag_set(open, on);
+            if (acq) game::flag_set(acq, on);
+            ++pieces;
+        }
+    std::unordered_map<uint32_t, bool> cache;
+    for (uintptr_t t : game::param_tables("ITEMLOT_PARAM_ST"))
+        for (int i = 0, n = game::param_rows(t); i < n; ++i) {
+            int32_t id;
+            uintptr_t d;
+            if (!game::param_row(t, i, id, d)) continue;
+            uint32_t flag = mem::rdv<uint32_t>(d + 0x80);
+            if (!flag) continue;
+            for (int k = 0; k < 8; ++k) {
+                int32_t item = mem::rdv<int32_t>(d + k * 4), cat = mem::rdv<int32_t>(d + 0x20 + k * 4);
+                if (item <= 0 || cat != 1) continue;
+                if (((uint32_t)item >= 2000000) != dlc) continue;
+                auto it = cache.find(item);
+                bool m = it != cache.end() ? it->second : (cache[item] = is_map_goods(item));
+                if (!m) continue;
+                game::flag_set(flag, on);
+                ++lots;
+                break;
+            }
+        }
+    elog("Carte %s : %d pieces, %d fragments au sol %s", dlc ? "DLC" : "base", pieces, lots, on ? "ramasses" : "remis");
+}
 
 template <size_t N> static bool all_set(const uint32_t (&f)[N]) {
     for (uint32_t x : f)
@@ -257,8 +306,8 @@ static void process_actions() {
         case Act::ResetGreyoll:
             greyoll_respawn();
             break;
-        case Act::MapBase: set_group(kMapBase, a.second != 0, "Carte (jeu de base)"); break;
-        case Act::MapDlc: set_group(kMapDlc, a.second != 0, "Carte (DLC)"); break;
+        case Act::MapBase: set_group(kMapBase, a.second != 0, "Carte (jeu de base)"); map_extra(false, a.second != 0); break;
+        case Act::MapDlc: set_group(kMapDlc, a.second != 0, "Carte (DLC)"); map_extra(true, a.second != 0); break;
         case Act::GracesBase: set_group(kGracesBase, a.second != 0, "Gr\xC3\xA2" "ces (jeu de base)"); break;
         case Act::GracesDlc: set_group(kGracesDlc, a.second != 0, "Gr\xC3\xA2" "ces (DLC)"); break;
         case Act::UnlockMap: break;

@@ -641,8 +641,13 @@ bool ezstate_event(int id, const std::vector<int>& args) {
     EzField08* f08 = (EzField08*)calloc(1, sizeof(EzField08));
     EzTalkIns* talk = (EzTalkIns*)calloc(1, sizeof(EzTalkIns));
     EzMenuJob* job = (EzMenuJob*)calloc(1, sizeof(EzMenuJob));
-    f08->handle = ~0ull;
-    talk->handle = ~0ull;
+    uint64_t h = ~0ull;
+    if (uintptr_t pl = player()) {
+        uint64_t ph = rdv<uint64_t>(pl + 8, ~0ull);
+        if (ph) h = ph;
+    }
+    f08->handle = h;
+    talk->handle = h;
     talk->job = job;
     job->parent = talk;
     EzTalkEvent te{nullptr, f08, talk, 0};
@@ -1268,6 +1273,18 @@ int talk_menu_id() {
     uintptr_t mm = ptr(g.menuMan);
     uintptr_t pop = mm ? ptr(mm + 0x80) : 0;
     return pop ? rdv<int32_t>(pop + 0x180, -1) : -1;
+}
+
+
+bool goods_name(uint32_t id, std::wstring& out) {
+    uintptr_t repo = ptr(g.msgRepo);
+    uintptr_t table = repo ? ptr(repo + 8) : 0;
+    if (!table) return false;
+    for (int idx : {10, 111, 319, 419}) {
+        uintptr_t f = ptr(table + (uintptr_t)idx * 8);
+        if (f && fmg_header(f) && fmg_get(f, id, out)) return true;
+    }
+    return false;
 }
 
 }

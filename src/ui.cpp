@@ -201,7 +201,7 @@ static bool toggle(const char* label, bool* v) {
     float h = ImGui::GetFrameHeight() * 0.78f, w = h * 1.85f;
     float y = p.y + (ImGui::GetFrameHeight() - h) * 0.5f;
     bool changed = false;
-    if (ImGui::InvisibleButton(label, ImVec2(w + 12 + ImGui::CalcTextSize(label, nullptr, true).x, ImGui::GetFrameHeight()))) {
+    if (ImGui::InvisibleButton(label, ImVec2(w + 12 + ImGui::CalcTextSize(label, nullptr, true).x, ImGui::GetFrameHeight()), ImGuiButtonFlags_EnableNav)) {
         *v = !*v;
         changed = true;
     }
@@ -278,13 +278,13 @@ static void tab_world(const feat::Status& st) {
     if (toggle("Voyage rapide depuis les mini-donjons", &g_cfg.dungeonWarp)) save();
     card_end();
 
-    card_begin("map", "Carte", "R\xC3\xA9v\xC3\xA8le les fragments de carte. D\xC3\xA9sactiver les cache \xC3\xA0 nouveau.");
+    card_begin("map", "Carte", "R\xC3\xA9v\xC3\xA8le les fragments de carte. D\xC3\xA9sactiver les cache et fait r\xC3\xA9" "appara\xC3\xAEtre les fragments au pied des st\xC3\xA8les (recharge la zone pour les voir).");
     bool mb = st.mapBase, md = st.mapDlc;
     if (toggle("Carte du jeu de base (surface + souterrain)", &mb)) feat::post(feat::Act::MapBase, mb ? 1 : 0);
     if (toggle("Carte du DLC (Royaume de l'Ombre)", &md)) feat::post(feat::Act::MapDlc, md ? 1 : 0);
     card_end();
 
-    card_begin("graces", "Sites de gr\xC3\xA2" "ce", "Active les sites de gr\xC3\xA2" "ce pour la t\xC3\xA9l\xC3\xA9portation. D\xC3\xA9sactiver les reverrouille tous (y compris ceux d\xC3\xA9j\xC3\xA0 d\xC3\xA9" "couverts).");
+    card_begin("graces", "Sites de gr\xC3\xA2" "ce", "Active les sites de gr\xC3\xA2" "ce pour la t\xC3\xA9l\xC3\xA9portation. D\xC3\xA9sactiver les reverrouille tous : recharge ensuite la zone (menu principal puis recharger) pour pouvoir les red\xC3\xA9" "couvrir.");
     bool gb = st.gracesBase, gd = st.gracesDlc;
     if (toggle("Gr\xC3\xA2" "ces du jeu de base (314)", &gb)) feat::post(feat::Act::GracesBase, gb ? 1 : 0);
     if (toggle("Gr\xC3\xA2" "ces du DLC (105)", &gd)) feat::post(feat::Act::GracesDlc, gd ? 1 : 0);
@@ -490,7 +490,7 @@ bool draw_menu_button() {
                                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 p = ImGui::GetCursorScreenPos();
-    bool clicked = ImGui::InvisibleButton("##open", sz);
+    bool clicked = ImGui::InvisibleButton("##open", sz, ImGuiButtonFlags_EnableNav);
     bool hov = ImGui::IsItemHovered();
     ImU32 l = ImGui::GetColorU32(ImVec4(0.f, 0.f, 0.f, hov ? 0.55f : 0.35f));
     ImU32 r = ImGui::GetColorU32(ImVec4(0.f, 0.f, 0.f, 0.f));
