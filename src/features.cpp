@@ -1176,16 +1176,13 @@ static bool tick_flail(double t, uintptr_t pl, Status& st) {
         }
         energySet = false;
     }
-    float mult = std::clamp(g_cfg.flailMult, 1.f, 50.f);
+    float mult = std::clamp(g_cfg.flailMult, 1.f, 25.f);
     bool want = g_cfg.flailSpin && s_rwFlail && anim > 0 && s_flailAnims.count(anim);
-    uintptr_t fph = game::chr_module(pl, g_cfg.offPhysMod);
     if (want) {
         game::set_anim_speed(pl, mult);
-        if (fph) mem::wr(fph + 0x1C4, 1.f / mult);
         s_flailOn = true;
     } else if (s_flailOn) {
         game::set_anim_speed(pl, 1.f);
-        if (fph) mem::wr(fph + 0x1C4, 1.f);
         s_flailOn = false;
     }
     st.flailActive = s_flailOn;
@@ -1303,6 +1300,24 @@ static void tick_jumpheight(uintptr_t tor, bool mounted) {
     }
 }
 
+static bool s_mcHave = false;
+static float s_mcLast[3];
+
+static void move_comp(uintptr_t pl, float mult, bool active) {
+    if (!active || mult <= 1.001f || !pl) { s_mcHave = false; return; }
+    float p[3];
+    if (!game::chr_pos(pl, p)) { s_mcHave = false; return; }
+    if (!s_mcHave) { memcpy(s_mcLast, p, 12); s_mcHave = true; return; }
+    float dx = p[0] - s_mcLast[0], dz = p[2] - s_mcLast[2];
+    if (dx * dx + dz * dz > 25.f) { memcpy(s_mcLast, p, 12); return; }
+    if (dx == 0.f && dz == 0.f) return;
+    float nx = s_mcLast[0] + dx / mult, nz = s_mcLast[2] + dz / mult;
+    game::chr_set_xz(pl, nx, nz);
+    s_mcLast[0] = nx;
+    s_mcLast[1] = p[1];
+    s_mcLast[2] = nz;
+}
+
 static DWORD WINAPI scan_thread(void*) {
     ULONGLONG lastNames = 0;
     for (;;) {
@@ -1388,7 +1403,11 @@ static DWORD WINAPI tick_thread(void*) {
             pump_delayed();
             st.esd = game::esd_ready();
             st.warp = game::g.luaWarp && game::g.luaEventMan;
-            if (!tick_flail(t, pl, st)) tick_cast(pl, st);
+            if (tick_flail(t, pl, st)) move_comp(pl, std::clamp(g_cfg.flailMult, 1.f, 25.f), true);
+            else {
+                tick_cast(pl, st);
+                move_comp(pl, std::clamp(g_cfg.castSpeed, 1.f, 10.f), s_castActive);
+            }
             tick_weight(pl, st);
 
             st.names = game::names_ready();

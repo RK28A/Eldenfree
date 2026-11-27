@@ -330,12 +330,16 @@ bool chr_pos(uintptr_t chr, float p[3]) {
 
 bool chr_set_xz(uintptr_t chr, float x, float z) {
     uintptr_t ph = phys_mod(chr);
-    return ph && wr(ph + g_cfg.offPos, x) && wr(ph + g_cfg.offPos + 8, z);
+    bool ok = ph && wr(ph + g_cfg.offPos, x) && wr(ph + g_cfg.offPos + 8, z);
+    if (ok) wr(ph + 0x91, (uint8_t)1);
+    return ok;
 }
 
 bool chr_set_pos(uintptr_t chr, const float p[3]) {
     uintptr_t ph = phys_mod(chr);
-    return ph && write_raw(ph + g_cfg.offPos, p, 12);
+    bool ok = ph && write_raw(ph + g_cfg.offPos, p, 12);
+    if (ok) wr(ph + 0x91, (uint8_t)1);
+    return ok;
 }
 
 uintptr_t chr_module(uintptr_t chr, int off) {
