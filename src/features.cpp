@@ -1,3 +1,4 @@
+#include "looks.h"
 #include "builds.h"
 #include "watch.h"
 #include "features.h"
@@ -415,7 +416,7 @@ static void tick_builds(double t, Status& st) {
     if (state == 0 && t >= s_jobNext) { s_jobT = t; s_jobState = 1; return; }
     if (state == 1 && t - s_jobT > 1.0) { frame_hook(); state = s_jobState.load(); }
     if (state != 3) return;
-    if (s_jobPhase < 4 && !s_jobRes.failed) {
+    if (s_jobPhase < 2 && !s_jobRes.failed) {
         static const double delay[5] = {0, 0, 0.4, 0.5, 0.25};
         ++s_jobPhase;
         s_jobNext = t + delay[s_jobPhase];
@@ -425,7 +426,7 @@ static void tick_builds(double t, Status& st) {
     s_jobPhase = 0;
     s_jobState = 0;
     if (s_jobRes.failed) { msg("Build : \xC3\xA9" "chec du chargement"); return; }
-    std::string m = "Build \xC2\xAB " + s_jobBuild.name + " \xC2\xBB charg\xC3\xA9 : " + std::to_string(s_jobRes.equipped) + " objet(s), " + std::to_string(s_jobRes.spells) + " sort(s)";
+    std::string m = "Build \xC2\xAB " + s_jobBuild.name + " \xC2\xBB charg\xC3\xA9 : " + std::to_string(s_jobRes.equipped) + " pi\xC3\xA8" "ce(s) d'armure, " + std::to_string(s_jobRes.spells) + " sort(s)";
     int miss = s_jobRes.missing + s_jobRes.spellsMissing;
     if (miss) m += ", " + std::to_string(miss) + " absent(s) de l'inventaire";
     msg(m);
@@ -1406,6 +1407,7 @@ static DWORD WINAPI tick_thread(void*) {
             tick_weight(pl, st);
             tick_dupe(st);
             tick_builds(t, st);
+            looks::tick(t, pl);
 
             st.names = game::names_ready();
             if (pl && g_menuOpen && g_wantWeapons && t - lastWeps > 1.5) {

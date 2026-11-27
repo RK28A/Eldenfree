@@ -1,3 +1,4 @@
+#include "looks.h"
 #include <algorithm>
 #include "builds.h"
 #include "overlay.h"
@@ -403,7 +404,7 @@ static void tab_menus(const feat::Status& st) {
 static void tab_builds(const feat::Status& st) {
     static char name[48] = "";
     auto list = builds::list();
-    card_begin("bsave", "Enregistrer", "Sauvegarde tes stats, armes (avec leur cendre de guerre et leur affinit\xC3\xA9), armure, talismans, fl\xC3\xA8" "ches, objets rapides, sacoche et sorts m\xC3\xA9moris\xC3\xA9s.");
+    card_begin("bsave", "Enregistrer", "Sauvegarde tes stats, ton armure (casque, plastron, gants, jambi\xC3\xA8res) et tes sorts m\xC3\xA9moris\xC3\xA9s.");
     right_pill(st.buildsReady ? "Pr\xC3\xAAt" : "Fonctions du jeu introuvables", st.buildsReady ? C_OK : C_BAD);
     ImGui::PushItemWidth(-1);
     ImGui::InputTextWithHint("##bn", "Nom du build (optionnel)", name, sizeof(name));
@@ -413,7 +414,7 @@ static void tab_builds(const feat::Status& st) {
         name[0] = 0;
     }
     if (toggle("Restaurer aussi les stats au chargement", &g_cfg.buildStats)) save();
-    hint("Au chargement, seuls les objets pr\xC3\xA9sents dans ton inventaire sont \xC3\xA9quip\xC3\xA9s : rien n'est cr\xC3\xA9\xC3\xA9. Grande rune et larmes de la fiole ne sont pas g\xC3\xA9r\xC3\xA9" "es.");
+    hint("Au chargement, seules les pi\xC3\xA8" "ces et sorts pr\xC3\xA9sents dans ton inventaire sont \xC3\xA9quip\xC3\xA9s : rien n'est cr\xC3\xA9\xC3\xA9. Les armes, talismans et objets ne sont pas touch\xC3\xA9s.");
     card_end();
 
     if (list.empty()) hint("Aucun build enregistr\xC3\xA9.");
@@ -439,6 +440,123 @@ static void tab_builds(const feat::Status& st) {
         card_end();
         ImGui::PopID();
     }
+}
+
+static std::string look_label(int cat) {
+    static const char* slot[4] = {"Casque", "Plastron", "Gants", "Jambi\xC3\xA8res"};
+    static const uint32_t bare[4] = {10000, 10100, 10200, 10300};
+    uint32_t id = g_cfg.look[cat];
+    std::string n = id == 0 ? "R\xC3\xA9" "el" : id == bare[cat] ? "Invisible" : looks::piece_name(id);
+    if (n.empty()) n = "#" + std::to_string(id);
+    if (n.size() > 30) n = n.substr(0, 28) + "\xE2\x80\xA6";
+    return std::string(slot[cat]) + "\n" + n;
+}
+
+static void tab_cosmetic(const feat::Status& st) {
+    static int pickCat = -1;
+    static char filter[48] = "";
+    static const uint32_t bare[4] = {10000, 10100, 10200, 10300};
+    int ls = looks::state();
+    card_begin("look", "Apparence de l'armure", "Change seulement ce qu'on voit : tes stats, ton poids et ton inventaire restent ceux de l'armure r\xC3\xA9" "ellement port\xC3\xA9" "e. L'apparence est remise automatiquement \xC3\xA0 chaque lancement.");
+    right_pill(ls == 1 ? (g_cfg.lookOn ? "Actif" : "Inactif") : ls == 0 ? "Initialisation" : "Indisponible sur cette version", ls == 1 ? (g_cfg.lookOn ? C_OK : C_DIM) : ls == 0 ? C_WARN : C_BAD);
+    if (toggle("Apparence personnalis\xC3\xA9" "e", &g_cfg.lookOn)) save();
+    ImGui::Dummy(ImVec2(0, 6));
+    float W = ImGui::GetContentRegionAvail().x, H = 400;
+    ImVec2 o = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float cx = o.x + W * 0.5f;
+    auto col = [&](int cat) { return ImGui::GetColorU32(g_cfg.lookOn && g_cfg.look[cat] ? C_GOLD : C_GOLD_LO); };
+    ImU32 line = ImGui::GetColorU32(C_GOLD_HI);
+    dl->AddCircleFilled(ImVec2(cx, o.y + 92), 27, col(0), 32);
+    dl->AddCircle(ImVec2(cx, o.y + 92), 27, line, 32, 1.5f);
+    dl->AddRectFilled(ImVec2(cx - 40, o.y + 126), ImVec2(cx + 40, o.y + 226), col(1), 10);
+    dl->AddRect(ImVec2(cx - 40, o.y + 126), ImVec2(cx + 40, o.y + 226), line, 10, 0, 1.5f);
+    for (int sgn : {-1, 1}) {
+        float x0 = cx + sgn * 46, x1 = cx + sgn * 68;
+        dl->AddRectFilled(ImVec2(std::min(x0, x1), o.y + 130), ImVec2(std::max(x0, x1), o.y + 222), col(2), 8);
+        dl->AddRect(ImVec2(std::min(x0, x1), o.y + 130), ImVec2(std::max(x0, x1), o.y + 222), line, 8, 0, 1.5f);
+        float l0 = cx + sgn * 5, l1 = cx + sgn * 37;
+        dl->AddRectFilled(ImVec2(std::min(l0, l1), o.y + 232), ImVec2(std::max(l0, l1), o.y + 338), col(3), 8);
+        dl->AddRect(ImVec2(std::min(l0, l1), o.y + 232), ImVec2(std::max(l0, l1), o.y + 338), line, 8, 0, 1.5f);
+    }
+    float bw = std::min(230.f, (W - 170.f) * 0.5f);
+    if (bw < 120.f) bw = 120.f;
+    ImVec2 pos[4] = {ImVec2(cx - bw * 0.5f, o.y + 4), ImVec2(cx - 84 - bw, o.y + 150), ImVec2(cx + 84, o.y + 150), ImVec2(cx - bw * 0.5f, o.y + 348)};
+    for (int cat = 0; cat < 4; ++cat) {
+        ImGui::SetCursorScreenPos(pos[cat]);
+        ImGui::PushID(cat);
+        if (ls != 1) ImGui::BeginDisabled();
+        if (ImGui::Button(look_label(cat).c_str(), ImVec2(bw, 48))) {
+            pickCat = cat;
+            filter[0] = 0;
+            ImGui::OpenPopup("pick");
+        }
+        if (ls != 1) ImGui::EndDisabled();
+        ImGui::SetNextWindowSize(ImVec2(460, 500));
+        if (ImGui::BeginPopup("pick")) {
+            ImGui::PushItemWidth(-1);
+            ImGui::InputTextWithHint("##pf", "Rechercher une pi\xC3\xA8" "ce\xE2\x80\xA6", filter, sizeof(filter));
+            ImGui::PopItemWidth();
+            auto choose = [&](uint32_t id) {
+                g_cfg.look[cat] = id;
+                if (id) g_cfg.lookOn = true;
+                save();
+                ImGui::CloseCurrentPopup();
+            };
+            if (ImGui::Selectable("R\xC3\xA9" "el (pas de changement)")) choose(0);
+            if (ImGui::Selectable("Invisible")) choose(bare[cat]);
+            ImGui::Separator();
+            ImGui::BeginChild("plist", ImVec2(0, 0));
+            if (!looks::catalog_ready()) hint("Liste des armures en cours de chargement\xE2\x80\xA6");
+            else {
+                std::string f = filter;
+                for (auto& ch : f) ch = (char)tolower((unsigned char)ch);
+                for (auto& p : looks::catalog(cat)) {
+                    if (!f.empty()) {
+                        std::string n = p.name;
+                        for (auto& ch : n) ch = (char)tolower((unsigned char)ch);
+                        if (n.find(f) == std::string::npos) continue;
+                    }
+                    ImGui::PushID((int)p.id);
+                    if (ImGui::Selectable(p.name.c_str(), g_cfg.look[cat] == p.id)) choose(p.id);
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndChild();
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+    ImGui::SetCursorScreenPos(o);
+    ImGui::Dummy(ImVec2(W, H));
+    hint("Le dessin est un sch\xC3\xA9ma, pas ton vrai personnage : le r\xC3\xA9sultat se voit directement en jeu. Tant que c'est actif, les transformations du DLC (formes de dragon...) peuvent ne plus s'afficher.");
+    card_end();
+
+    card_begin("lsets", "Tenues enregistr\xC3\xA9" "es", "Enregistre l'apparence actuelle sous un nom pour la remettre en un clic.");
+    static char name[48] = "";
+    ImGui::PushItemWidth(-1);
+    ImGui::InputTextWithHint("##ln", "Nom de la tenue (optionnel)", name, sizeof(name));
+    ImGui::PopItemWidth();
+    if (primary("Enregistrer la tenue actuelle", true)) {
+        looks::add_set(name);
+        name[0] = 0;
+    }
+    auto sets = looks::sets();
+    for (size_t i = 0; i < sets.size(); ++i) {
+        ImGui::PushID((int)i);
+        ImGui::Separator();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(sets[i].name.c_str());
+        float w = 120;
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, ImGui::GetContentRegionAvail().x - w * 2 - ImGui::GetStyle().ItemSpacing.x));
+        if (ImGui::Button("Charger", ImVec2(w, 0))) looks::load_set(i);
+        ImGui::SameLine();
+        if (ImGui::Button("Supprimer", ImVec2(w, 0))) looks::remove_set(i);
+        ImGui::PopID();
+    }
+    card_end();
+    (void)st;
 }
 
 static void tab_torrent(const feat::Status& st) {
@@ -568,6 +686,7 @@ static void tab_diag(const feat::Status& st) {
         status_row("Cendres en main", st.gemR != 0xFFFFFFFF, gm);
         status_row("Duplication de cendres", st.dupeRows > 0);
         status_row("Builds (fonctions d'\xC3\xA9quipement)", st.buildsReady);
+        status_row("Cosm\xC3\xA9tique", looks::state() == 1, looks::state() == 0 ? "initialisation" : nullptr);
         status_row("Noms d'armes", st.names);
         status_row("Torrent", st.torrentFound, st.mounted ? "mont\xC3\xA9" : "appelle Torrent pour le d\xC3\xA9tecter");
         ImGui::EndTable();
@@ -656,7 +775,7 @@ void draw() {
     float footer = 34;
     ImGui::BeginChild("body", ImVec2(0, -footer), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground);
     static int curTab = 0, wantTab = -1;
-    const int tabCount = 9;
+    const int tabCount = 10;
     if (!ImGui::IsKeyDown(ImGuiKey_GamepadBack)) {
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) wantTab = (curTab + tabCount - 1) % tabCount;
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) wantTab = (curTab + 1) % tabCount;
@@ -685,6 +804,7 @@ void draw() {
         tab("Menus", tab_menus);
         tab("Armes", tab_weapons);
         tab("Builds", tab_builds);
+        tab("Cosm\xC3\xA9tique", tab_cosmetic);
         tab("Torrent", tab_torrent);
         tab("Joueur", tab_player);
         tab("Plus", tab_plus);

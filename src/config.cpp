@@ -78,6 +78,11 @@ void cfg_load() {
     c.aowBuff = gets(L"Player", L"AshOfWarBuffAnimsV6");
     c.freeAshDupe = geti(L"Menus", L"FreeAshDupe", c.freeAshDupe);
     c.buildStats = geti(L"Builds", L"RestoreStats", c.buildStats);
+    c.lookOn = geti(L"Cosmetic", L"Enabled", c.lookOn);
+    c.look[0] = (uint32_t)geti(L"Cosmetic", L"Head", 0);
+    c.look[1] = (uint32_t)geti(L"Cosmetic", L"Chest", 0);
+    c.look[2] = (uint32_t)geti(L"Cosmetic", L"Arms", 0);
+    c.look[3] = (uint32_t)geti(L"Cosmetic", L"Legs", 0);
     c.aowNo = gets(L"Player", L"AshOfWarAttackAnimsV5");
     c.jumpFlags = gets(L"Torrent", L"DoubleJumpFlags");
     c.fallVelField = gets(L"Torrent", L"FallVelocityField");
@@ -147,6 +152,11 @@ void cfg_save() {
     puts_(L"Player", L"AshOfWarBuffAnimsV6", c.aowBuff);
     puti(L"Menus", L"FreeAshDupe", c.freeAshDupe);
     puti(L"Builds", L"RestoreStats", c.buildStats);
+    puti(L"Cosmetic", L"Enabled", c.lookOn);
+    puti(L"Cosmetic", L"Head", (int)c.look[0]);
+    puti(L"Cosmetic", L"Chest", (int)c.look[1]);
+    puti(L"Cosmetic", L"Arms", (int)c.look[2]);
+    puti(L"Cosmetic", L"Legs", (int)c.look[3]);
     puts_(L"Player", L"AshOfWarAttackAnimsV5", c.aowNo);
     puts_(L"Torrent", L"DoubleJumpFlags", c.jumpFlags);
     puts_(L"Torrent", L"FallVelocityField", c.fallVelField);

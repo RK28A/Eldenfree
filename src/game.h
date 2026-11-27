@@ -79,6 +79,8 @@ struct SpFx { int id; float a, b; };
 void speffects2(uintptr_t chr, std::vector<SpFx>& out);
 uint32_t hand_gem(bool right);
 uintptr_t gaitem(uint32_t handle);
+bool fmg_text(int fmgIdx, uint32_t id, std::string& out);
+size_t param_row_size(uintptr_t t);
 int inv_qty(uint32_t itemId, int setTo = -1);
 
 struct InvItem { uint32_t handle, id, qty; };

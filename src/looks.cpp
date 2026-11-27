@@ -1,0 +1,350 @@
+#include "looks.h"
+#include "config.h"
+#include "game.h"
+#include "mem.h"
+#include <windows.h>
+#include <atomic>
+#include <cstdio>
+#include <cstring>
+#include <algorithm>
+#include <mutex>
+#include <unordered_map>
+
+namespace looks {
+
+using mem::rdv;
+
+static const size_t kProtSize = 0x1A0, kVfxSize = 0xA4, kSpSize = 0x390;
+static const uint32_t kBare[4] = {10000, 10100, 10200, 10300};
+
+static std::atomic<int> s_state{0};
+static std::atomic<bool> s_catReady{false};
+static std::vector<Piece> s_cat[4];
+static std::unordered_map<uint32_t, std::string> s_names;
+
+static uintptr_t s_prot = 0, s_vfx = 0, s_sp = 0;
+static int s_vfxId[2] = {0, 0}, s_spId[2] = {0, 0};
+static uintptr_t s_vfxRow[2] = {0, 0}, s_spRow[2] = {0, 0};
+static std::vector<uint8_t> s_vfxOrig[2], s_spOrig[2], s_spTemplate;
+static uint32_t s_carrier = 0;
+static uintptr_t s_carRow[3] = {0, 0, 0};
+static std::vector<uint8_t> s_carOrig[3];
+static bool s_hijacked = false;
+
+static bool s_applied[2] = {false, false};
+static uint32_t s_cur[4] = {0, 0, 0, 0};
+static bool s_curOn = false;
+static double s_reapplyAt = 0, s_checkAt = 0;
+static uintptr_t s_lastPl = 0;
+
+int state() { return s_state.load(); }
+bool catalog_ready() { return s_catReady.load(); }
+const std::vector<Piece>& catalog(int cat) { return s_cat[cat & 3]; }
+
+std::string piece_name(uint32_t id) {
+    if (!s_catReady.load()) return "";
+    auto it = s_names.find(id);
+    return it == s_names.end() ? "" : it->second;
+}
+
+static bool refs_vfx(uintptr_t sp, const std::vector<int>& ids) {
+    static const int offs[8] = {0x170, 0x18C, 0x190, 0x194, 0x198, 0x19C, 0x1A0, 0x1A4};
+    for (int o : offs) {
+        int v = rdv<int32_t>(sp + o, -1);
+        if (v <= 0) continue;
+        for (int id : ids)
+            if (id == v) return true;
+    }
+    return false;
+}
+
+static bool init() {
+    auto pt = game::param_tables("EQUIP_PARAM_PROTECTOR_ST");
+    auto vt = game::param_tables("SP_EFFECT_VFX_PARAM_ST");
+    auto st = game::param_tables("SP_EFFECT_PARAM_ST");
+    if (pt.empty() || vt.empty() || st.empty()) { elog("Cosmetique : tables introuvables"); return false; }
+    s_prot = pt[0];
+    s_vfx = vt[0];
+    s_sp = st[0];
+    size_t ps = game::param_row_size(s_prot), vs = game::param_row_size(s_vfx), ss = game::param_row_size(s_sp);
+    if (ps != kProtSize || vs != kVfxSize || ss != kSpSize) {
+        elog("Cosmetique : tailles inattendues (armure 0x%zX, vfx 0x%zX, effet 0x%zX)", ps, vs, ss);
+        return false;
+    }
+    for (int c = 0; c < 4; ++c) {
+        uintptr_t r = game::param_find(s_prot, (int32_t)kBare[c]);
+        if (!r || rdv<uint8_t>(r + 0xD6, 0xFF) != c) { elog("Cosmetique : categorie d'armure illisible"); return false; }
+    }
+    uintptr_t tpl = game::param_find(s_sp, 310320);
+    if (!tpl) { elog("Cosmetique : effet modele introuvable"); return false; }
+    s_spTemplate.resize(kSpSize);
+    mem::read_raw(tpl, s_spTemplate.data(), kSpSize);
+    float one = 1.f, perm = -1.f;
+    int32_t none = -1;
+    uint16_t zero16 = 0;
+    memcpy(s_spTemplate.data() + 0xE4, &one, 4);
+    memcpy(s_spTemplate.data() + 0x08, &perm, 4);
+    memcpy(s_spTemplate.data() + 0x00, &none, 4);
+    memcpy(s_spTemplate.data() + 0x156, &zero16, 2);
+    for (int o : {0x170, 0x18C, 0x190, 0x194, 0x198, 0x19C, 0x1A0, 0x1A4}) memcpy(s_spTemplate.data() + o, &none, 4);
+
+    std::vector<int> tvfx;
+    std::vector<uint32_t> bases;
+    for (int i = 0, n = game::param_rows(s_vfx); i < n; ++i) {
+        int32_t id;
+        uintptr_t d;
+        if (!game::param_row(s_vfx, i, id, d)) continue;
+        int32_t tp = rdv<int32_t>(d + 0x20, -1);
+        if (tp <= 0) continue;
+        tvfx.push_back(id);
+        bases.push_back((uint32_t)tp);
+    }
+    std::vector<int> tsp;
+    for (int i = 0, n = game::param_rows(s_sp); i < n; ++i) {
+        int32_t id;
+        uintptr_t d;
+        if (game::param_row(s_sp, i, id, d) && refs_vfx(d, tvfx)) tsp.push_back(id);
+    }
+    for (uint32_t b : bases) {
+        if (game::param_find(s_prot, (int32_t)b + 100) && game::param_find(s_prot, (int32_t)b + 200) && game::param_find(s_prot, (int32_t)b + 300)) {
+            s_carrier = b;
+            break;
+        }
+    }
+    elog("Cosmetique : %zu vfx de transformation, %zu effets, porteur %u", tvfx.size(), tsp.size(), s_carrier);
+    if (tvfx.size() < 2 || tsp.size() < 2 || !s_carrier) return false;
+    for (int k = 0; k < 2; ++k) {
+        s_vfxId[k] = tvfx[tvfx.size() - 1 - k];
+        s_spId[k] = tsp[tsp.size() - 1 - k];
+        s_vfxRow[k] = game::param_find(s_vfx, s_vfxId[k]);
+        s_spRow[k] = game::param_find(s_sp, s_spId[k]);
+        s_vfxOrig[k].resize(kVfxSize);
+        s_spOrig[k].resize(kSpSize);
+        mem::read_raw(s_vfxRow[k], s_vfxOrig[k].data(), kVfxSize);
+        mem::read_raw(s_spRow[k], s_spOrig[k].data(), kSpSize);
+    }
+    for (int k = 0; k < 3; ++k) {
+        s_carRow[k] = game::param_find(s_prot, (int32_t)s_carrier + 100 * (k + 1));
+        s_carOrig[k].resize(kProtSize);
+        mem::read_raw(s_carRow[k], s_carOrig[k].data(), kProtSize);
+    }
+    return true;
+}
+
+static void build_catalog() {
+    std::vector<Piece> cat[4];
+    std::unordered_map<uint32_t, std::string> names;
+    for (int i = 0, n = game::param_rows(s_prot); i < n; ++i) {
+        int32_t id;
+        uintptr_t d;
+        if (!game::param_row(s_prot, i, id, d) || id < 10000) continue;
+        int c = rdv<uint8_t>(d + 0xD6, 0xFF);
+        if (c > 3) continue;
+        std::string name;
+        for (int f : {12, 313, 413, 114, 112})
+            if (game::fmg_text(f, (uint32_t)id, name)) break;
+        if (name.empty() || name[0] == '[' || name[0] == '%' || name[0] == '?') continue;
+        if ((uint32_t)id == kBare[c]) continue;
+        cat[c].push_back({(uint32_t)id, name});
+        names[(uint32_t)id] = name;
+    }
+    size_t total = 0;
+    for (int c = 0; c < 4; ++c) {
+        std::sort(cat[c].begin(), cat[c].end(), [](const Piece& a, const Piece& b) { return a.name < b.name; });
+        total += cat[c].size();
+    }
+    if (total < 20) return;
+    for (int c = 0; c < 4; ++c) s_cat[c] = std::move(cat[c]);
+    s_names = std::move(names);
+    s_catReady = true;
+    elog("Cosmetique : %zu pieces d'armure listees", total);
+}
+
+static void restore_rows() {
+    if (!s_hijacked) return;
+    for (int k = 0; k < 2; ++k) {
+        mem::write_raw(s_vfxRow[k], s_vfxOrig[k].data(), kVfxSize);
+        mem::write_raw(s_spRow[k], s_spOrig[k].data(), kSpSize);
+    }
+    for (int k = 0; k < 3; ++k) mem::write_raw(s_carRow[k], s_carOrig[k].data(), kProtSize);
+    s_hijacked = false;
+}
+
+static void write_vfx(int k, uint32_t protBase, bool full) {
+    std::vector<uint8_t> v = s_vfxOrig[k];
+    int32_t none = -1, tp = (int32_t)protBase;
+    for (int o = 0; o < 24; o += 4) memcpy(v.data() + o, &none, 4);
+    memcpy(v.data() + 0x20, &tp, 4);
+    v[44] = 8;
+    v[45] = 1;
+    v[46] = (uint8_t)((v[46] & 0x7F) | (full ? 0x80 : 0));
+    v[47] = (uint8_t)((v[47] & 0x7F) | 0x20);
+    mem::write_raw(s_vfxRow[k], v.data(), kVfxSize);
+}
+
+static void write_sp(int k) {
+    std::vector<uint8_t> v = s_spTemplate;
+    int32_t id = s_vfxId[k];
+    memcpy(v.data() + 0x170, &id, 4);
+    mem::write_raw(s_spRow[k], v.data(), kSpSize);
+}
+
+static bool has_effect(uintptr_t pl, int id) {
+    std::vector<std::pair<int, float>> fx;
+    game::speffects(pl, fx);
+    for (auto& e : fx)
+        if (e.first == id) return true;
+    return false;
+}
+
+static void drop_effects(uintptr_t pl) {
+    for (int k = 0; k < 2; ++k) {
+        if (pl && (s_applied[k] || (s_hijacked && has_effect(pl, s_spId[k])))) game::speffect_remove(pl, s_spId[k]);
+        s_applied[k] = false;
+    }
+}
+
+static uint32_t worn(int cat) {
+    uintptr_t P = game::pgd();
+    uint32_t v = P ? rdv<uint32_t>(P + 0x5F8 + (12 + cat) * 4, 0xFFFFFFFF) : 0xFFFFFFFF;
+    if ((v >> 28) != 1) return kBare[cat];
+    v &= 0x0FFFFFFF;
+    return game::param_find(s_prot, (int32_t)v) ? v : kBare[cat];
+}
+
+void tick(double t, uintptr_t pl) {
+    static double tryAt = 0;
+    if (s_state == 0) {
+        if (!game::params_ready() || t < tryAt) return;
+        tryAt = t + 5.0;
+        static int tries = 0;
+        if (init()) s_state = 1;
+        else if (++tries >= 3) s_state = -1;
+        return;
+    }
+    if (s_state != 1) return;
+    if (!s_catReady && game::names_ready() && t > tryAt) {
+        tryAt = t + 5.0;
+        build_catalog();
+    }
+    if (!pl || !game::speffect_ready()) return;
+    if (pl != s_lastPl) {
+        s_lastPl = pl;
+        s_applied[0] = s_applied[1] = false;
+        s_reapplyAt = t + 2.0;
+    }
+    uint32_t want[4];
+    bool on = g_cfg.lookOn;
+    for (int c = 0; c < 4; ++c) {
+        want[c] = on ? g_cfg.look[c] : 0;
+        if (want[c] && !game::param_find(s_prot, (int32_t)want[c])) want[c] = 0;
+    }
+    bool body = want[1] || want[2] || want[3];
+    uint32_t eff[4] = {want[0], 0, 0, 0};
+    if (body)
+        for (int c = 1; c < 4; ++c) eff[c] = want[c] ? want[c] : worn(c);
+    bool any = eff[0] || body;
+    bool changed = on != s_curOn || memcmp(eff, s_cur, sizeof(eff)) != 0;
+    if (changed) {
+        drop_effects(pl);
+        s_curOn = on;
+        memcpy(s_cur, eff, sizeof(eff));
+        if (!any) {
+            restore_rows();
+            return;
+        }
+        s_hijacked = true;
+        if (eff[0]) {
+            write_vfx(0, eff[0], false);
+            write_sp(0);
+        }
+        if (body) {
+            for (int c = 1; c < 4; ++c) {
+                uintptr_t src = game::param_find(s_prot, (int32_t)eff[c]);
+                std::vector<uint8_t> row(kProtSize);
+                if (src && mem::read_raw(src, row.data(), kProtSize)) mem::write_raw(s_carRow[c - 1], row.data(), kProtSize);
+            }
+            write_vfx(1, s_carrier, true);
+            write_sp(1);
+        }
+        s_reapplyAt = t + 0.35;
+        return;
+    }
+    if (!any || t < s_reapplyAt || t < s_checkAt) return;
+    s_checkAt = t + 0.5;
+    bool need[2] = {eff[0] != 0, body};
+    for (int k = 0; k < 2; ++k) {
+        if (!need[k]) continue;
+        if (!has_effect(pl, s_spId[k])) {
+            game::speffect_add(pl, s_spId[k]);
+            if (!s_applied[k]) elog("Cosmetique : effet %d applique", s_spId[k]);
+        }
+        s_applied[k] = true;
+    }
+}
+
+static std::mutex s_sm;
+static std::vector<Set> s_sets;
+static bool s_setsLoaded = false;
+
+static std::wstring file() { return g_dir + L"EldenFreeTenues.txt"; }
+
+static void load_locked() {
+    if (s_setsLoaded) return;
+    s_setsLoaded = true;
+    FILE* f = _wfopen(file().c_str(), L"rb");
+    if (!f) return;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        char* tab = strchr(line, '\t');
+        if (!tab) continue;
+        Set s;
+        s.name.assign(line, tab);
+        if (sscanf(tab + 1, "%u,%u,%u,%u", &s.ids[0], &s.ids[1], &s.ids[2], &s.ids[3]) == 4) s_sets.push_back(s);
+    }
+    fclose(f);
+}
+
+static void save_locked() {
+    FILE* f = _wfopen(file().c_str(), L"wb");
+    if (!f) return;
+    for (auto& s : s_sets) fprintf(f, "%s\t%u,%u,%u,%u\n", s.name.c_str(), s.ids[0], s.ids[1], s.ids[2], s.ids[3]);
+    fclose(f);
+}
+
+std::vector<Set> sets() {
+    std::lock_guard<std::mutex> lk(s_sm);
+    load_locked();
+    return s_sets;
+}
+
+void add_set(const std::string& name) {
+    std::lock_guard<std::mutex> lk(s_sm);
+    load_locked();
+    Set s;
+    s.name = name.empty() ? "Tenue " + std::to_string(s_sets.size() + 1) : name;
+    for (auto& c : s.name)
+        if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+    for (int c = 0; c < 4; ++c) s.ids[c] = g_cfg.look[c];
+    s_sets.push_back(s);
+    save_locked();
+}
+
+void load_set(size_t i) {
+    std::lock_guard<std::mutex> lk(s_sm);
+    load_locked();
+    if (i >= s_sets.size()) return;
+    for (int c = 0; c < 4; ++c) g_cfg.look[c] = s_sets[i].ids[c];
+    g_cfg.lookOn = true;
+    cfg_save();
+}
+
+void remove_set(size_t i) {
+    std::lock_guard<std::mutex> lk(s_sm);
+    load_locked();
+    if (i >= s_sets.size()) return;
+    s_sets.erase(s_sets.begin() + (ptrdiff_t)i);
+    save_locked();
+}
+
+}

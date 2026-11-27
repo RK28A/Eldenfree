@@ -389,9 +389,12 @@ bool capture(Build& b) {
         uintptr_t w = wep_obj(b.gearH[i]);
         if (w) b.gems[i] = (int)gem_of(w);
     }
-    std::string r = b.gearHas[1] ? game::weapon_name(b.gear[1]) : "", l = b.gearHas[0] ? game::weapon_name(b.gear[0]) : "";
-    b.summary = r;
-    if (!l.empty()) b.summary += (b.summary.empty() ? "" : "  +  ") + l;
+    int ns = 0, na = 0;
+    for (int sp : b.spells)
+        if (sp > 0) ++ns;
+    for (int i = 12; i <= 15; ++i)
+        if (b.gearHas[i]) ++na;
+    b.summary = std::to_string(na) + " pi\xC3\xA8" "ce(s) d'armure  \xC2\xB7  " + std::to_string(ns) + " sort(s)";
     for (auto& c : b.summary)
         if (c == '\t' || c == '\n' || c == '\r') c = ' ';
     return true;
@@ -418,12 +421,8 @@ void apply_gear(const Build& b, bool stats, Result& r) {
         }
     }
     uintptr_t egd = P + 0x2B0;
-    bool anyGem = false;
-    for (int i = 0; i < 6; ++i)
-        if (b.gearHas[i] && b.gems[i] >= 0) anyGem = true;
     GemLayout L;
-    if (anyGem) L = gem_layout(v);
-    static const int order[] = {17, 18, 19, 20, 21, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    static const int order[] = {12, 13, 14, 15};
     for (int slot : order) {
         uint32_t cur = rdv<uint32_t>(P + 0x5F8 + slot * 4), curH = rdv<uint32_t>(P + 0x340 + slot * 4);
         uint32_t item = b.gear[slot];
@@ -465,7 +464,7 @@ void apply_rest(const Build& b, Result& r) {
     Inv v;
     if (!ready() || !P || !game::player() || !inv_read(v)) { r.failed = true; return; }
     uintptr_t egd = P + 0x2B0;
-    for (int k = 0; k < 16; ++k) {
+    for (int k = 0; k < 0; ++k) {
         uint32_t cur = rdv<uint32_t>(P + 0x5F8 + (22 + k) * 4), item = b.goods[k];
         if (cur == item) {
             if (b.goodsHas[k]) ++r.equipped;

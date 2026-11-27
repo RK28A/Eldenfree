@@ -34,6 +34,8 @@ struct Config {
     std::string aowNo;
     bool freeAshDupe = false;
     bool buildStats = true;
+    bool lookOn = false;
+    uint32_t look[4] = {0, 0, 0, 0};
     bool graceMenu = false;
     int jumpKey = 0x46;
     std::string pauseUi;

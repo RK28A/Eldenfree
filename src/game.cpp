@@ -1521,4 +1521,21 @@ int inv_qty(uint32_t itemId, int setTo) {
     return 0;
 }
 
+bool fmg_text(int fmgIdx, uint32_t id, std::string& out) {
+    uintptr_t repo = ptr(g.msgRepo);
+    uintptr_t table = repo ? ptr(repo + 8) : 0;
+    uintptr_t f = table ? ptr(table + (uintptr_t)fmgIdx * 8) : 0;
+    std::wstring w;
+    if (!f || !fmg_header(f) || !fmg_get(f, id, w)) return false;
+    out = utf8(w);
+    return !out.empty();
+}
+
+size_t param_row_size(uintptr_t t) {
+    int32_t id;
+    uintptr_t a = 0, b = 0;
+    if (param_rows(t) < 2 || !param_row(t, 0, id, a) || !param_row(t, 1, id, b) || b <= a) return 0;
+    return b - a;
+}
+
 }

@@ -21,6 +21,7 @@ add_library(EldenFree SHARED
   src/mem.cpp
   src/watch.cpp
   src/builds.cpp
+  src/looks.cpp
   src/config.cpp
   src/game.cpp
   src/features.cpp
